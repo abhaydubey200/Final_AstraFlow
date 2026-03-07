@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import Pipelines from "@/pages/Pipelines";
 import Connections from "@/pages/Connections";
 import Monitoring from "@/pages/Monitoring";
+import ExecutionLogs from "@/pages/ExecutionLogs";
 import Catalog from "@/pages/Catalog";
 import Governance from "@/pages/Governance";
 import SettingsPage from "@/pages/SettingsPage";
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/" element={<Dashboard />} />
             <Route path="/pipelines" element={<Pipelines />} />
             <Route path="/connections" element={<Connections />} />
+            <Route path="/logs" element={<ExecutionLogs />} />
             <Route path="/monitoring" element={<Monitoring />} />
             <Route path="/catalog" element={<Catalog />} />
             <Route path="/governance" element={<Governance />} />
