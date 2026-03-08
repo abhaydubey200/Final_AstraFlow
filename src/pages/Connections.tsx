@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Plus, Search, CheckCircle, XCircle, Database, Server, Globe, X, Loader2, Zap, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useConnections, useCreateConnection, useUpdateConnection, useDeleteConnection } from "@/hooks/use-connections";
+import { useConnections, useCreateConnection, useUpdateConnection, useDeleteConnection, useTestConnection, useSchemaDiscovery } from "@/hooks/use-connections";
+import type { TestConnectionResult, SchemaTable } from "@/hooks/use-connections";
 import type { Connection, ConnectionType, ConnectionFormData } from "@/types/connection";
 import { CONNECTION_TYPE_LABELS, DEFAULT_PORTS } from "@/types/connection";
 import { toast } from "@/hooks/use-toast";
