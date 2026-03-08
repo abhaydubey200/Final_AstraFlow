@@ -2,3 +2,6 @@ project_id = "pqtjwadlrvcnqnbxfuce"
 
 [functions.schedule-runner]
 verify_jwt = false
+
+[functions.simulate-run]
+verify_jwt = false

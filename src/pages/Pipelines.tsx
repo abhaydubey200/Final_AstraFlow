@@ -118,8 +118,8 @@ const Pipelines = () => {
 
   const handleRunNow = async (id: string) => {
     try {
-      await triggerRun.mutateAsync(id);
-      toast({ title: "Pipeline run triggered" });
+      await triggerRun.mutateAsync({ pipelineId: id });
+      toast({ title: "Pipeline execution started" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }

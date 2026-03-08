@@ -14,6 +14,12 @@ export interface RunFilters {
 export function usePipelineRuns(filters?: RunFilters) {
   return useQuery<PipelineRun[]>({
     queryKey: [...RUNS_KEY, filters],
+    refetchInterval: (query) => {
+      // Auto-refetch every 3s if any run is still "running"
+      const data = query.state.data;
+      if (data && data.some((r) => r.status === "running")) return 3000;
+      return false;
+    },
     queryFn: async () => {
       let query = supabase
         .from("pipeline_runs")
@@ -99,21 +105,17 @@ export function useExecutionLogs(filters: LogFilters) {
 export function useTriggerRun() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (pipelineId: string) => {
-      const { data, error } = await supabase
-        .from("pipeline_runs")
-        .insert({
-          pipeline_id: pipelineId,
-          status: "running",
-          start_time: new Date().toISOString(),
-          rows_processed: 0,
-          triggered_by: "manual",
-        })
-        .select()
-        .single();
+    mutationFn: async ({ pipelineId, userId }: { pipelineId: string; userId?: string }) => {
+      const { data, error } = await supabase.functions.invoke("simulate-run", {
+        body: { pipeline_id: pipelineId, user_id: userId },
+      });
       if (error) throw error;
-      return data as PipelineRun;
+      return data as { run_id: string; status: string; rows_processed: number };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: RUNS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: RUNS_KEY });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      qc.invalidateQueries({ queryKey: ["pipelines"] });
+    },
   });
 }
