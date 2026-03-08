@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/components/AuthProvider";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import {
