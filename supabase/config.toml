@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.pipeline-validate]
 verify_jwt = false
+
+[functions.send-alert-email]
+verify_jwt = false
