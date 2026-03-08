@@ -10,9 +10,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ScrollText,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/AuthProvider";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -28,6 +30,7 @@ const navItems = [
 const AppSidebar = () => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const { user, signOut } = useAuth();
 
   return (
     <aside className={cn("flex flex-col border-r border-border bg-sidebar transition-all duration-300 h-screen sticky top-0", collapsed ? "w-16" : "w-60")}>
@@ -48,6 +51,23 @@ const AppSidebar = () => {
           );
         })}
       </nav>
+
+      {/* User + Sign Out */}
+      <div className="px-2 py-2 border-t border-border space-y-1">
+        {!collapsed && user && (
+          <div className="px-3 py-1.5">
+            <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+          </div>
+        )}
+        <button
+          onClick={signOut}
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors w-full"
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && <span>Sign Out</span>}
+        </button>
+      </div>
+
       <button onClick={() => setCollapsed(!collapsed)} className="flex items-center justify-center h-10 border-t border-border text-muted-foreground hover:text-foreground transition-colors">
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
       </button>
