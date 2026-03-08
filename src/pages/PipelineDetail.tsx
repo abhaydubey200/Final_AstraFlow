@@ -43,7 +43,7 @@ const PipelineDetail = () => {
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
 
   // Schedule state
-  const [scheduleType, setScheduleType] = useState<string>("");
+  const [scheduleType, setScheduleType] = useState<ScheduleType>("manual");
   const [cronExpr, setCronExpr] = useState<string>("");
   const [scheduleInit, setScheduleInit] = useState(false);
 
