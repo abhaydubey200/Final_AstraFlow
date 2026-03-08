@@ -12,6 +12,7 @@ import {
   ScrollText,
   LogOut,
   Bell,
+  BookOpen,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
