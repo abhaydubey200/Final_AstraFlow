@@ -62,6 +62,73 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_logs: {
+        Row: {
+          id: string
+          log_level: string
+          message: string
+          run_id: string
+          stage: string
+          timestamp: string
+        }
+        Insert: {
+          id?: string
+          log_level?: string
+          message: string
+          run_id: string
+          stage: string
+          timestamp?: string
+        }
+        Update: {
+          id?: string
+          log_level?: string
+          message?: string
+          run_id?: string
+          stage?: string
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_logs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_checkpoints: {
+        Row: {
+          id: string
+          last_processed_value: string
+          pipeline_id: string
+          source_table: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          last_processed_value: string
+          pipeline_id: string
+          source_table: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          last_processed_value?: string
+          pipeline_id?: string
+          source_table?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_checkpoints_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pipeline_edges: {
         Row: {
           id: string
@@ -139,6 +206,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "pipeline_nodes_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_runs: {
+        Row: {
+          created_at: string
+          end_time: string | null
+          error_message: string | null
+          id: string
+          pipeline_id: string
+          rows_processed: number
+          start_time: string
+          status: string
+          triggered_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          end_time?: string | null
+          error_message?: string | null
+          id?: string
+          pipeline_id: string
+          rows_processed?: number
+          start_time?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          end_time?: string | null
+          error_message?: string | null
+          id?: string
+          pipeline_id?: string
+          rows_processed?: number
+          start_time?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_runs_pipeline_id_fkey"
             columns: ["pipeline_id"]
             isOneToOne: false
             referencedRelation: "pipelines"
