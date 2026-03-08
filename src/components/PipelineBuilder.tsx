@@ -133,6 +133,8 @@ const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initia
             schedule_type: "manual",
             schedule_config: { edges: edges } as any,
             created_by: null,
+            last_run_at: null,
+            next_run_at: null,
           },
           nodes: mappedNodes,
           edges: [], // Edges require DB node IDs; stored in schedule_config temporarily

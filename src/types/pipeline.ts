@@ -16,6 +16,8 @@ export interface Pipeline {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
 }
 
 export interface PipelineNode {

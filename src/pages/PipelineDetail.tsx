@@ -116,8 +116,24 @@ const PipelineDetail = () => {
   };
 
   const handleUpdateSchedule = () => {
+    // Compute next_run_at based on schedule type
+    let nextRun: string | null = null;
+    const now = new Date();
+    if (scheduleType === "hourly") {
+      nextRun = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+    } else if (scheduleType === "daily") {
+      nextRun = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    } else if (scheduleType === "cron") {
+      nextRun = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+    }
+
     updatePipeline.mutate(
-      { id: pipeline.id, schedule_type: scheduleType, schedule_config: { cron_expression: cronExpr } },
+      {
+        id: pipeline.id,
+        schedule_type: scheduleType,
+        schedule_config: { ...((pipeline.schedule_config as Record<string, unknown>) ?? {}), cron_expression: cronExpr },
+        ...(nextRun ? { next_run_at: nextRun } : {}),
+      } as any,
       {
         onSuccess: () => toast({ title: "Schedule updated" }),
         onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -308,6 +324,24 @@ const PipelineDetail = () => {
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Cron Expression</label>
                 <input type="text" value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-display text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+              </div>
+            )}
+            {pipeline.next_run_at && scheduleType !== "manual" && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border border-border">
+                <Clock className="w-4 h-4 text-primary" />
+                <div>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Next Run</span>
+                  <p className="text-xs text-foreground font-display">{format(new Date(pipeline.next_run_at), "PPpp")}</p>
+                </div>
+              </div>
+            )}
+            {pipeline.last_run_at && (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border border-border">
+                <CheckCircle className="w-4 h-4 text-success" />
+                <div>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Last Run</span>
+                  <p className="text-xs text-foreground font-display">{format(new Date(pipeline.last_run_at), "PPpp")}</p>
+                </div>
               </div>
             )}
             <button onClick={handleUpdateSchedule} disabled={updatePipeline.isPending} className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">

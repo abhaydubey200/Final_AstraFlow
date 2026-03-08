@@ -263,7 +263,9 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          last_run_at: string | null
           name: string
+          next_run_at: string | null
           schedule_config: Json | null
           schedule_type: string
           status: string
@@ -274,7 +276,9 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          last_run_at?: string | null
           name: string
+          next_run_at?: string | null
           schedule_config?: Json | null
           schedule_type?: string
           status?: string
@@ -285,7 +289,9 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          last_run_at?: string | null
           name?: string
+          next_run_at?: string | null
           schedule_config?: Json | null
           schedule_type?: string
           status?: string

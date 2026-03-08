@@ -1,1 +1,4 @@
 project_id = "pqtjwadlrvcnqnbxfuce"
+
+[functions.schedule-runner]
+verify_jwt = false
