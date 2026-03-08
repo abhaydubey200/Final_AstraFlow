@@ -42,9 +42,18 @@ Deno.serve(async (req) => {
     );
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: claims, error: authErr } = await supabase.auth.getClaims(token);
-    if (authErr || !claims?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    let claims: any;
+    try {
+      const result = await supabase.auth.getClaims(token);
+      if (result.error || !result.data?.claims) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      claims = result.data.claims;
+    } catch {
+      return new Response(JSON.stringify({ error: "Unauthorized - token expired" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
