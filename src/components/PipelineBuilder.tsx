@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { ArrowLeft, Play, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Save, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCreatePipeline, useUpdatePipeline } from "@/hooks/use-pipelines";
+import { useTriggerRun } from "@/hooks/use-executions";
+import { useValidatePipeline } from "@/hooks/use-connections";
+import { useAuth } from "@/components/AuthProvider";
 import { toast } from "@/hooks/use-toast";
 import { BuilderNode, BuilderEdge } from "./pipeline-builder/types";
 import { useCanvasState } from "./pipeline-builder/useCanvasState";
