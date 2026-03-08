@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import { Plus, Search, GitBranch, MoreHorizontal, Play, Copy, Trash2, Eye, Edit, Loader2 } from "lucide-react";
+import PipelinesSkeleton from "@/components/PipelinesSkeleton";
 import { usePipelines, useDeletePipeline } from "@/hooks/use-pipelines";
 import { useTriggerRun } from "@/hooks/use-executions";
 import { toast } from "@/hooks/use-toast";

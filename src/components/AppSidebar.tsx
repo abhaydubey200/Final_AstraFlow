@@ -29,7 +29,7 @@ const navItems = [
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
-const AppSidebar = () => {
+const AppSidebar = ({ onClose }: { onClose?: () => void }) => {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { user, signOut } = useAuth();

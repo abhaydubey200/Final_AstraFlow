@@ -6,6 +6,59 @@
 
 @layer base {
   :root {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 187 85% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 93%;
+    --secondary-foreground: 222 30% 30%;
+
+    --muted: 210 20% 95%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 187 85% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 187 85% 40%;
+
+    --radius: 0.5rem;
+
+    --success: 152 69% 38%;
+    --success-foreground: 152 69% 95%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 10%;
+
+    --sidebar-background: 210 20% 96%;
+    --sidebar-foreground: 215 16% 47%;
+    --sidebar-primary: 187 85% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 93%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 20% 88%;
+    --sidebar-ring: 187 85% 40%;
+
+    --glow-primary: 0 0 20px hsl(187 85% 40% / 0.1);
+    --glow-success: 0 0 20px hsl(152 69% 38% / 0.1);
+    --glow-destructive: 0 0 20px hsl(0 72% 51% / 0.1);
+
+    --font-display: 'JetBrains Mono', monospace;
+    --font-body: 'Inter', sans-serif;
+  }
+
+  .dark {
     --background: 222 47% 6%;
     --foreground: 210 40% 92%;
 
@@ -34,8 +87,6 @@
     --input: 222 30% 16%;
     --ring: 187 85% 53%;
 
-    --radius: 0.5rem;
-
     --success: 152 69% 45%;
     --success-foreground: 152 69% 95%;
     --warning: 38 92% 50%;
@@ -53,9 +104,6 @@
     --glow-primary: 0 0 20px hsl(187 85% 53% / 0.15);
     --glow-success: 0 0 20px hsl(152 69% 45% / 0.15);
     --glow-destructive: 0 0 20px hsl(0 72% 51% / 0.15);
-
-    --font-display: 'JetBrains Mono', monospace;
-    --font-body: 'Inter', sans-serif;
   }
 }
 
