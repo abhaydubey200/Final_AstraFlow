@@ -191,23 +191,34 @@ const Connections = () => {
                 <span className="text-xs text-muted-foreground">Enable SSL/TLS</span>
               </label>
               {testResult && (
-                <div className={cn("flex items-center gap-2 p-3 rounded-md border", testResult === "success" ? "border-success/30 bg-success/5" : "border-destructive/30 bg-destructive/5")}>
-                  {testResult === "success" ? <CheckCircle className="w-4 h-4 text-success" /> : <XCircle className="w-4 h-4 text-destructive" />}
-                  <span className={cn("text-xs font-medium", testResult === "success" ? "text-success" : "text-destructive")}>{testResult === "success" ? "Connection successful!" : "Connection failed. Check your credentials."}</span>
+                <div className={cn("flex items-center gap-2 p-3 rounded-md border", testResult.success ? "border-success/30 bg-success/5" : "border-destructive/30 bg-destructive/5")}>
+                  {testResult.success ? <CheckCircle className="w-4 h-4 text-success" /> : <XCircle className="w-4 h-4 text-destructive" />}
+                  <div className="flex-1">
+                    <span className={cn("text-xs font-medium", testResult.success ? "text-success" : "text-destructive")}>
+                      {testResult.success ? "Connection successful!" : "Connection failed."}
+                    </span>
+                    {testResult.server_version && (
+                      <span className="text-[10px] text-muted-foreground ml-2">{testResult.server_version} • {testResult.latency_ms}ms</span>
+                    )}
+                    {testResult.tables_count !== undefined && testResult.success && (
+                      <span className="text-[10px] text-muted-foreground ml-2">• {testResult.tables_count} tables found</span>
+                    )}
+                    {testResult.error && <p className="text-[10px] text-destructive mt-1">{testResult.error}</p>}
+                  </div>
                 </div>
               )}
             </div>
             <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-              <button onClick={handleTestConnection} disabled={testing} className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
-                {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                {testing ? "Testing..." : "Test Connection"}
+              <button onClick={handleTestConnection} disabled={testConnection.isPending} className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+                {testConnection.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                {testConnection.isPending ? "Testing..." : "Test Connection"}
               </button>
               <div className="flex gap-2">
                 <button onClick={() => { setShowForm(false); setTestResult(null); }} className="px-4 py-2 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
                 <button
                   onClick={handleSave}
-                  disabled={testResult !== "success" || saving}
-                  className={cn("px-4 py-2 rounded-md text-xs font-medium transition-colors", testResult === "success" && !saving ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground cursor-not-allowed")}
+                  disabled={!testResult?.success || saving}
+                  className={cn("px-4 py-2 rounded-md text-xs font-medium transition-colors", testResult?.success && !saving ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground cursor-not-allowed")}
                 >
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : editingId ? "Update Connection" : "Save Connection"}
                 </button>
