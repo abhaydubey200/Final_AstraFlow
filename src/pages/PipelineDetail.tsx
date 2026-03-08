@@ -1,111 +1,151 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { usePipeline, useUpdatePipeline, useDeletePipeline } from "@/hooks/use-pipelines";
+import type { ScheduleType } from "@/types/pipeline";
+import { usePipelineRuns, useExecutionLogs, useTriggerRun } from "@/hooks/use-executions";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import {
-  ArrowLeft,
-  Play,
-  Settings,
-  Calendar,
-  Clock,
-  CheckCircle,
-  XCircle,
-  ChevronDown,
-  ChevronRight,
-  Database,
-  Upload,
-  Activity,
-  FileCheck,
-  Trash2,
-  RotateCcw,
-  Bell,
-  BellOff,
-  Terminal,
-  Edit,
+  ArrowLeft, Play, Calendar, Clock, CheckCircle, XCircle,
+  ChevronDown, ChevronRight, Database, Upload, Activity,
+  FileCheck, Trash2, Bell, BellOff, Terminal, Edit, Loader2,
 } from "lucide-react";
-
-const pipelineData: Record<string, {
-  id: string; name: string; source: string; sourceTable: string;
-  destination: string; destTable: string; mode: string; timestampCol: string;
-  schedule: string; scheduleType: string; cronExpr: string;
-  status: "success" | "running" | "failed" | "pending";
-  successRate: string; avgDuration: string; totalRows: string;
-  retryMax: number; retryInterval: number; timeout: number;
-  notifyOnFail: boolean; notifyOnSuccess: boolean;
-}> = {
-  "PL-001": {
-    id: "PL-001", name: "Sales MSSQL → Snowflake", source: "Sales DB Primary (MSSQL)",
-    sourceTable: "dbo.orders", destination: "Analytics Warehouse (Snowflake)",
-    destTable: "analytics.orders", mode: "Incremental", timestampCol: "updated_at",
-    schedule: "Every 15 min", scheduleType: "cron", cronExpr: "*/15 * * * *",
-    status: "success", successRate: "99.8%", avgDuration: "4m 32s", totalRows: "142.3M",
-    retryMax: 3, retryInterval: 5, timeout: 30, notifyOnFail: true, notifyOnSuccess: false,
-  },
-  "PL-002": {
-    id: "PL-002", name: "Inventory CDC Pipeline", source: "Inventory DB (MSSQL)",
-    sourceTable: "dbo.inventory", destination: "Analytics Warehouse (Snowflake)",
-    destTable: "analytics.inventory", mode: "CDC", timestampCol: "—",
-    schedule: "Real-time", scheduleType: "cron", cronExpr: "* * * * *",
-    status: "running", successRate: "98.2%", avgDuration: "2m 10s", totalRows: "58.1M",
-    retryMax: 5, retryInterval: 2, timeout: 15, notifyOnFail: true, notifyOnSuccess: false,
-  },
-};
-
-const runHistory = [
-  { id: "RUN-2847", status: "success" as const, started: "2026-03-07 14:32:00", duration: "4m 32s", rowsExtracted: "1,234,567", rowsLoaded: "1,230,102",
-    tasks: [
-      { name: "Extract", status: "success" as const, duration: "1m 12s", rows: "1,234,567", logs: ["Connected to sql-prod-01", "Extracted 1,234,567 rows"] },
-      { name: "Transform", status: "success" as const, duration: "1m 45s", rows: "1,230,102", logs: ["dropDuplicates applied", "Schema mapping complete"] },
-      { name: "Validate", status: "success" as const, duration: "0m 22s", rows: "1,230,102", logs: ["Row count: PASS", "Null check: PASS"] },
-      { name: "Load", status: "success" as const, duration: "1m 13s", rows: "1,230,102", logs: ["COPY INTO analytics.orders", "1,230,102 rows loaded"] },
-    ],
-  },
-  { id: "RUN-2840", status: "success" as const, started: "2026-03-07 14:17:00", duration: "4m 18s", rowsExtracted: "1,180,320", rowsLoaded: "1,176,500",
-    tasks: [
-      { name: "Extract", status: "success" as const, duration: "1m 05s", rows: "1,180,320", logs: ["Extracted 1,180,320 rows"] },
-      { name: "Transform", status: "success" as const, duration: "1m 40s", rows: "1,176,500", logs: ["Processing complete"] },
-      { name: "Validate", status: "success" as const, duration: "0m 20s", rows: "1,176,500", logs: ["All checks passed"] },
-      { name: "Load", status: "success" as const, duration: "1m 13s", rows: "1,176,500", logs: ["Loaded successfully"] },
-    ],
-  },
-  { id: "RUN-2833", status: "failed" as const, started: "2026-03-07 14:02:00", duration: "1m 45s", rowsExtracted: "890,000", rowsLoaded: "0",
-    tasks: [
-      { name: "Extract", status: "success" as const, duration: "1m 05s", rows: "890,000", logs: ["Extracted 890,000 rows"] },
-      { name: "Transform", status: "failed" as const, duration: "0m 40s", rows: "0", logs: ["ERROR: OutOfMemory on Spark worker", "Transformation aborted"] },
-    ],
-  },
-  { id: "RUN-2826", status: "success" as const, started: "2026-03-07 13:47:00", duration: "4m 50s", rowsExtracted: "1,320,000", rowsLoaded: "1,315,200",
-    tasks: [
-      { name: "Extract", status: "success" as const, duration: "1m 15s", rows: "1,320,000", logs: ["Extracted 1,320,000 rows"] },
-      { name: "Transform", status: "success" as const, duration: "1m 50s", rows: "1,315,200", logs: ["Processing complete"] },
-      { name: "Validate", status: "success" as const, duration: "0m 25s", rows: "1,315,200", logs: ["All checks passed"] },
-      { name: "Load", status: "success" as const, duration: "1m 20s", rows: "1,315,200", logs: ["Loaded successfully"] },
-    ],
-  },
-];
+import { format, formatDistanceStrict } from "date-fns";
 
 const taskIcons: Record<string, typeof Database> = {
-  Extract: Database,
-  Transform: Activity,
-  Validate: FileCheck,
-  Load: Upload,
+  Extract: Database, extract: Database,
+  Transform: Activity, transform: Activity,
+  Validate: FileCheck, validate: FileCheck,
+  Load: Upload, load: Upload,
 };
+
+function formatDuration(start: string, end: string | null): string {
+  if (!end) return "—";
+  return formatDistanceStrict(new Date(start), new Date(end));
+}
 
 const PipelineDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const { data: pipelineData, isLoading: loadingPipeline } = usePipeline(id);
+  const pipeline = pipelineData;
+  const nodes = pipelineData?.pipeline_nodes ?? [];
+
+  const { data: runs = [], isLoading: loadingRuns } = usePipelineRuns({ pipelineId: id });
+  const updatePipeline = useUpdatePipeline();
+  const deletePipeline = useDeletePipeline();
+  const triggerRun = useTriggerRun();
+
   const [activeTab, setActiveTab] = useState<"overview" | "history" | "schedule" | "settings">("overview");
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
 
-  const pipeline = pipelineData[id || "PL-001"] || pipelineData["PL-001"];
-  const [scheduleType, setScheduleType] = useState(pipeline.scheduleType);
-  const [cronExpr, setCronExpr] = useState(pipeline.cronExpr);
-  const [retryMax, setRetryMax] = useState(pipeline.retryMax);
-  const [retryInterval, setRetryInterval] = useState(pipeline.retryInterval);
-  const [timeout, setTimeout_] = useState(pipeline.timeout);
-  const [notifyFail, setNotifyFail] = useState(pipeline.notifyOnFail);
-  const [notifySuccess, setNotifySuccess] = useState(pipeline.notifyOnSuccess);
+  // Schedule state
+  const [scheduleType, setScheduleType] = useState<ScheduleType>("manual");
+  const [cronExpr, setCronExpr] = useState<string>("");
+  const [scheduleInit, setScheduleInit] = useState(false);
+
+  // Settings state
+  const [retryMax, setRetryMax] = useState(3);
+  const [retryInterval, setRetryInterval] = useState(5);
+  const [timeout_, setTimeout_] = useState(30);
+  const [notifyFail, setNotifyFail] = useState(true);
+  const [notifySuccess, setNotifySuccess] = useState(false);
+  const [settingsInit, setSettingsInit] = useState(false);
+
+  // Initialize schedule/settings from pipeline once loaded
+  if (pipeline && !scheduleInit) {
+    setScheduleType(pipeline.schedule_type || "manual");
+    const cfg = pipeline.schedule_config as Record<string, unknown> | null;
+    setCronExpr((cfg?.cron_expression as string) ?? "");
+    setScheduleInit(true);
+  }
+  if (pipeline && !settingsInit) {
+    const cfg = pipeline.schedule_config as Record<string, unknown> | null;
+    setRetryMax((cfg?.retry_max as number) ?? 3);
+    setRetryInterval((cfg?.retry_interval as number) ?? 5);
+    setTimeout_((cfg?.timeout as number) ?? 30);
+    setNotifyFail((cfg?.notify_on_fail as boolean) ?? true);
+    setNotifySuccess((cfg?.notify_on_success as boolean) ?? false);
+    setSettingsInit(true);
+  }
+
+  if (loadingPipeline) {
+    return (
+      <div className="p-6 lg:p-8 flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!pipeline) {
+    return (
+      <div className="p-6 lg:p-8 space-y-4">
+        <button onClick={() => navigate("/pipelines")} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+        <p className="text-sm text-muted-foreground">Pipeline not found.</p>
+      </div>
+    );
+  }
+
+  const statusMap: Record<string, "success" | "running" | "failed" | "pending"> = {
+    active: "success", draft: "pending", paused: "pending", error: "failed",
+  };
+
+  const successCount = runs.filter((r) => r.status === "success").length;
+  const successRate = runs.length > 0 ? `${((successCount / runs.length) * 100).toFixed(1)}%` : "—";
+  const totalRows = runs.reduce((s, r) => s + (r.rows_processed ?? 0), 0);
+  const avgDuration = (() => {
+    const completed = runs.filter((r) => r.end_time);
+    if (!completed.length) return "—";
+    const avg = completed.reduce((s, r) => s + (new Date(r.end_time!).getTime() - new Date(r.start_time).getTime()), 0) / completed.length;
+    const mins = Math.floor(avg / 60000);
+    const secs = Math.floor((avg % 60000) / 1000);
+    return `${mins}m ${secs}s`;
+  })();
+
+  const handleRunNow = () => {
+    triggerRun.mutate(pipeline.id, {
+      onSuccess: () => toast({ title: "Run triggered" }),
+      onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    });
+  };
+
+  const handleUpdateSchedule = () => {
+    updatePipeline.mutate(
+      { id: pipeline.id, schedule_type: scheduleType, schedule_config: { cron_expression: cronExpr } },
+      {
+        onSuccess: () => toast({ title: "Schedule updated" }),
+        onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleUpdateSettings = () => {
+    const existing = (pipeline.schedule_config as Record<string, unknown>) ?? {};
+    updatePipeline.mutate(
+      {
+        id: pipeline.id,
+        schedule_config: { ...existing, retry_max: retryMax, retry_interval: retryInterval, timeout: timeout_, notify_on_fail: notifyFail, notify_on_success: notifySuccess },
+      },
+      {
+        onSuccess: () => toast({ title: "Settings saved" }),
+        onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleDelete = () => {
+    if (!confirm("Delete this pipeline permanently?")) return;
+    deletePipeline.mutate(pipeline.id, {
+      onSuccess: () => { toast({ title: "Pipeline deleted" }); navigate("/pipelines"); },
+      onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    });
+  };
 
   const tabs = [
     { key: "overview" as const, label: "Overview" },
@@ -125,17 +165,17 @@ const PipelineDetail = () => {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-display font-bold text-foreground">{pipeline.name}</h1>
-              <StatusBadge status={pipeline.status} />
+              <StatusBadge status={statusMap[pipeline.status] ?? "pending"} />
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5 font-display">{pipeline.id}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 font-display">{pipeline.id.slice(0, 8)}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate(`/pipelines/${id}/edit`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors">
             <Edit className="w-3.5 h-3.5" /> Edit Pipeline
           </button>
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
-            <Play className="w-3.5 h-3.5" /> Run Now
+          <button onClick={handleRunNow} disabled={triggerRun.isPending} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+            {triggerRun.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Run Now
           </button>
         </div>
       </div>
@@ -143,16 +183,7 @@ const PipelineDetail = () => {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={cn(
-              "px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px",
-              activeTab === tab.key
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={cn("px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px", activeTab === tab.key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
             {tab.label}
           </button>
         ))}
@@ -161,12 +192,11 @@ const PipelineDetail = () => {
       {/* Tab: Overview */}
       {activeTab === "overview" && (
         <div className="space-y-6">
-          {/* Metric cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Success Rate", value: pipeline.successRate, icon: CheckCircle, color: "text-success" },
-              { label: "Avg Duration", value: pipeline.avgDuration, icon: Clock, color: "text-primary" },
-              { label: "Total Rows Moved", value: pipeline.totalRows, icon: Activity, color: "text-primary" },
+              { label: "Success Rate", value: successRate, icon: CheckCircle, color: "text-success" },
+              { label: "Avg Duration", value: avgDuration, icon: Clock, color: "text-primary" },
+              { label: "Total Rows Moved", value: totalRows.toLocaleString(), icon: Activity, color: "text-primary" },
             ].map((m) => (
               <div key={m.label} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -178,15 +208,15 @@ const PipelineDetail = () => {
             ))}
           </div>
 
-          {/* Config summary */}
+          {/* Config */}
           <div className="rounded-lg border border-border bg-card p-5 space-y-3">
             <h3 className="text-sm font-display font-semibold text-foreground">Configuration</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                { label: "Source", value: `${pipeline.source} → ${pipeline.sourceTable}` },
-                { label: "Destination", value: `${pipeline.destination} → ${pipeline.destTable}` },
-                { label: "Mode", value: `${pipeline.mode}${pipeline.timestampCol !== "—" ? ` (column: ${pipeline.timestampCol})` : ""}` },
-                { label: "Schedule", value: pipeline.schedule },
+                { label: "Description", value: pipeline.description || "No description" },
+                { label: "Schedule", value: pipeline.schedule_type },
+                { label: "Status", value: pipeline.status },
+                { label: "Created", value: format(new Date(pipeline.created_at), "PPP") },
               ].map((item) => (
                 <div key={item.label}>
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{item.label}</span>
@@ -196,40 +226,42 @@ const PipelineDetail = () => {
             </div>
           </div>
 
-          {/* Mini DAG */}
-          <div className="rounded-lg border border-border bg-card p-5">
-            <h3 className="text-sm font-display font-semibold text-foreground mb-4">Pipeline Flow</h3>
-            <div className="flex items-center justify-center gap-4 py-4">
-              {["Extract", "Transform", "Validate", "Load"].map((step, i, arr) => {
-                const Icon = taskIcons[step];
-                return (
-                  <div key={step} className="flex items-center gap-4">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                        <Icon className="w-5 h-5 text-primary" />
+          {/* Pipeline Flow from real nodes */}
+          {nodes.length > 0 && (
+            <div className="rounded-lg border border-border bg-card p-5">
+              <h3 className="text-sm font-display font-semibold text-foreground mb-4">Pipeline Flow</h3>
+              <div className="flex items-center justify-center gap-4 py-4 flex-wrap">
+                {nodes.sort((a, b) => a.order_index - b.order_index).map((node, i) => {
+                  const Icon = taskIcons[node.node_type] || Activity;
+                  return (
+                    <div key={node.id} className="flex items-center gap-4">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                          <Icon className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-display">{node.label || node.node_type}</span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-display">{step}</span>
+                      {i < nodes.length - 1 && <div className="w-8 h-px bg-border" />}
                     </div>
-                    {i < arr.length - 1 && (
-                      <div className="w-8 h-px bg-border" />
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
       {/* Tab: Run History */}
       {activeTab === "history" && (
         <div className="space-y-2">
-          {runHistory.length === 0 ? (
+          {loadingRuns ? (
+            <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : runs.length === 0 ? (
             <div className="rounded-lg border border-border bg-card p-12 flex flex-col items-center text-center">
               <Clock className="w-10 h-10 text-muted-foreground mb-3" />
               <h3 className="text-sm font-display font-semibold text-foreground">No runs yet</h3>
               <p className="text-xs text-muted-foreground mt-1">This pipeline hasn't been executed yet.</p>
-              <button className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium">
+              <button onClick={handleRunNow} className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium">
                 <Play className="w-3.5 h-3.5" /> Run Now
               </button>
             </div>
@@ -243,65 +275,12 @@ const PipelineDetail = () => {
                     <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Status</th>
                     <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Started</th>
                     <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Duration</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Extracted</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Loaded</th>
+                    <th className="text-left text-xs font-medium text-muted-foreground px-5 py-3">Rows</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {runHistory.map((run) => (
-                    <>
-                      <tr
-                        key={run.id}
-                        onClick={() => setExpandedRun(expandedRun === run.id ? null : run.id)}
-                        className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                      >
-                        <td className="px-5 py-3">
-                          {expandedRun === run.id ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                        </td>
-                        <td className="px-5 py-3 text-xs font-display text-foreground">{run.id}</td>
-                        <td className="px-5 py-3"><StatusBadge status={run.status} /></td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">{run.started}</td>
-                        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{run.duration}</td>
-                        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{run.rowsExtracted}</td>
-                        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{run.rowsLoaded}</td>
-                      </tr>
-                      {expandedRun === run.id && (
-                        <tr key={`${run.id}-detail`}>
-                          <td colSpan={7} className="bg-muted/5 px-5 py-3">
-                            <div className="space-y-2">
-                              {run.tasks.map((task, ti) => {
-                                const TaskIcon = taskIcons[task.name] || Activity;
-                                const taskKey = `${run.id}-${ti}`;
-                                return (
-                                  <div key={ti} className="rounded-md border border-border bg-card overflow-hidden">
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setExpandedTask(expandedTask === taskKey ? null : taskKey); }}
-                                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors text-left"
-                                    >
-                                      {task.status === "success" ? <CheckCircle className="w-3.5 h-3.5 text-success" /> : task.status === "failed" ? <XCircle className="w-3.5 h-3.5 text-destructive" /> : <Clock className="w-3.5 h-3.5 text-warning" />}
-                                      <TaskIcon className="w-3.5 h-3.5 text-muted-foreground" />
-                                      <span className="text-xs font-medium text-foreground flex-1">{task.name}</span>
-                                      <span className="text-[10px] text-muted-foreground font-display">{task.duration}</span>
-                                      <span className="text-[10px] text-muted-foreground">{task.rows} rows</span>
-                                      <Terminal className="w-3 h-3 text-muted-foreground" />
-                                    </button>
-                                    {expandedTask === taskKey && task.logs.length > 0 && (
-                                      <div className="border-t border-border bg-background px-4 py-2 space-y-0.5">
-                                        {task.logs.map((log, li) => (
-                                          <p key={li} className={cn("text-[11px] font-display leading-relaxed", log.startsWith("ERROR") ? "text-destructive" : "text-muted-foreground")}>
-                                            {log}
-                                          </p>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                  {runs.map((run) => (
+                    <RunRow key={run.id} run={run} expanded={expandedRun === run.id} onToggle={() => setExpandedRun(expandedRun === run.id ? null : run.id)} expandedTask={expandedTask} setExpandedTask={setExpandedTask} />
                   ))}
                 </tbody>
               </table>
@@ -318,15 +297,8 @@ const PipelineDetail = () => {
             <div>
               <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Schedule Type</label>
               <div className="flex gap-2 mt-2">
-                {["hourly", "daily", "cron"].map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setScheduleType(t)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md border text-xs font-medium transition-colors capitalize",
-                      scheduleType === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                    )}
-                  >
+                {["manual", "hourly", "daily", "cron"].map((t) => (
+                  <button key={t} onClick={() => setScheduleType(t as ScheduleType)} className={cn("px-3 py-1.5 rounded-md border text-xs font-medium transition-colors capitalize", scheduleType === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}>
                     {t}
                   </button>
                 ))}
@@ -335,20 +307,11 @@ const PipelineDetail = () => {
             {scheduleType === "cron" && (
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Cron Expression</label>
-                <input
-                  type="text"
-                  value={cronExpr}
-                  onChange={(e) => setCronExpr(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-display text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+                <input type="text" value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-display text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
             )}
-            <div className="flex items-center gap-2 p-3 rounded-md bg-muted/30 border border-border">
-              <Calendar className="w-4 h-4 text-primary" />
-              <span className="text-xs text-foreground">Next run: <span className="font-display">March 8, 2026 02:00 UTC</span></span>
-            </div>
-            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
-              Update Schedule
+            <button onClick={handleUpdateSchedule} disabled={updatePipeline.isPending} className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+              {updatePipeline.isPending ? "Saving..." : "Update Schedule"}
             </button>
           </div>
         </div>
@@ -375,7 +338,7 @@ const PipelineDetail = () => {
             <h3 className="text-sm font-display font-semibold text-foreground">Timeout</h3>
             <div>
               <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Timeout (minutes)</label>
-              <input type="number" value={timeout} onChange={(e) => setTimeout_(Number(e.target.value))} className="w-full mt-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-display text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+              <input type="number" value={timeout_} onChange={(e) => setTimeout_(Number(e.target.value))} className="w-full mt-1 px-3 py-2 rounded-md border border-border bg-background text-sm font-display text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
             </div>
           </div>
 
@@ -383,36 +346,28 @@ const PipelineDetail = () => {
             <h3 className="text-sm font-display font-semibold text-foreground">Notifications</h3>
             <div className="space-y-3">
               <label className="flex items-center justify-between cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <Bell className="w-4 h-4 text-destructive" />
-                  <span className="text-xs text-foreground">Notify on failure</span>
-                </div>
-                <button
-                  onClick={() => setNotifyFail(!notifyFail)}
-                  className={cn("w-9 h-5 rounded-full transition-colors relative", notifyFail ? "bg-primary" : "bg-muted")}
-                >
+                <div className="flex items-center gap-2"><Bell className="w-4 h-4 text-destructive" /><span className="text-xs text-foreground">Notify on failure</span></div>
+                <button onClick={() => setNotifyFail(!notifyFail)} className={cn("w-9 h-5 rounded-full transition-colors relative", notifyFail ? "bg-primary" : "bg-muted")}>
                   <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-foreground transition-transform", notifyFail ? "left-4" : "left-0.5")} />
                 </button>
               </label>
               <label className="flex items-center justify-between cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <BellOff className="w-4 h-4 text-success" />
-                  <span className="text-xs text-foreground">Notify on success</span>
-                </div>
-                <button
-                  onClick={() => setNotifySuccess(!notifySuccess)}
-                  className={cn("w-9 h-5 rounded-full transition-colors relative", notifySuccess ? "bg-primary" : "bg-muted")}
-                >
+                <div className="flex items-center gap-2"><BellOff className="w-4 h-4 text-success" /><span className="text-xs text-foreground">Notify on success</span></div>
+                <button onClick={() => setNotifySuccess(!notifySuccess)} className={cn("w-9 h-5 rounded-full transition-colors relative", notifySuccess ? "bg-primary" : "bg-muted")}>
                   <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-foreground transition-transform", notifySuccess ? "left-4" : "left-0.5")} />
                 </button>
               </label>
             </div>
           </div>
 
+          <button onClick={handleUpdateSettings} disabled={updatePipeline.isPending} className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+            {updatePipeline.isPending ? "Saving..." : "Save Settings"}
+          </button>
+
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5 space-y-3">
             <h3 className="text-sm font-display font-semibold text-destructive">Danger Zone</h3>
             <p className="text-xs text-muted-foreground">Permanently delete this pipeline and all its run history.</p>
-            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 transition-colors">
+            <button onClick={handleDelete} disabled={deletePipeline.isPending} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground text-xs font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50">
               <Trash2 className="w-3.5 h-3.5" /> Delete Pipeline
             </button>
           </div>
@@ -421,5 +376,87 @@ const PipelineDetail = () => {
     </div>
   );
 };
+
+/* Sub-component for expandable run rows */
+function RunRow({ run, expanded, onToggle, expandedTask, setExpandedTask }: {
+  run: { id: string; status: string; start_time: string; end_time: string | null; rows_processed: number; error_message: string | null };
+  expanded: boolean;
+  onToggle: () => void;
+  expandedTask: string | null;
+  setExpandedTask: (k: string | null) => void;
+}) {
+  const statusMap: Record<string, "success" | "running" | "failed" | "pending"> = {
+    success: "success", running: "running", failed: "failed", pending: "pending", cancelled: "pending",
+  };
+
+  return (
+    <>
+      <tr onClick={onToggle} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer">
+        <td className="px-5 py-3">{expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}</td>
+        <td className="px-5 py-3 text-xs font-display text-foreground">{run.id.slice(0, 8)}</td>
+        <td className="px-5 py-3"><StatusBadge status={statusMap[run.status] ?? "pending"} /></td>
+        <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(run.start_time), "PPp")}</td>
+        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{formatDuration(run.start_time, run.end_time)}</td>
+        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{run.rows_processed.toLocaleString()}</td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} className="bg-muted/5 px-5 py-3">
+            <RunLogsPanel runId={run.id} expandedTask={expandedTask} setExpandedTask={setExpandedTask} errorMessage={run.error_message} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function RunLogsPanel({ runId, expandedTask, setExpandedTask, errorMessage }: {
+  runId: string; expandedTask: string | null; setExpandedTask: (k: string | null) => void; errorMessage: string | null;
+}) {
+  const { data: logs = [], isLoading } = useExecutionLogs({ runId });
+
+  if (isLoading) return <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-primary" /></div>;
+
+  // Group logs by stage
+  const stages = Array.from(new Set(logs.map((l) => l.stage)));
+
+  if (stages.length === 0 && errorMessage) {
+    return <p className="text-xs text-destructive">{errorMessage}</p>;
+  }
+  if (stages.length === 0) {
+    return <p className="text-xs text-muted-foreground">No execution logs for this run.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {stages.map((stage) => {
+        const stageLogs = logs.filter((l) => l.stage === stage);
+        const hasError = stageLogs.some((l) => l.log_level === "ERROR");
+        const Icon = taskIcons[stage] || Activity;
+        const taskKey = `${runId}-${stage}`;
+        return (
+          <div key={stage} className="rounded-md border border-border bg-card overflow-hidden">
+            <button onClick={(e) => { e.stopPropagation(); setExpandedTask(expandedTask === taskKey ? null : taskKey); }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors text-left">
+              {hasError ? <XCircle className="w-3.5 h-3.5 text-destructive" /> : <CheckCircle className="w-3.5 h-3.5 text-success" />}
+              <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground flex-1 capitalize">{stage}</span>
+              <span className="text-[10px] text-muted-foreground">{stageLogs.length} logs</span>
+              <Terminal className="w-3 h-3 text-muted-foreground" />
+            </button>
+            {expandedTask === taskKey && (
+              <div className="border-t border-border bg-background px-4 py-2 space-y-0.5 max-h-48 overflow-auto">
+                {stageLogs.map((log) => (
+                  <p key={log.id} className={cn("text-[11px] font-display leading-relaxed", log.log_level === "ERROR" ? "text-destructive" : log.log_level === "WARN" ? "text-warning" : "text-muted-foreground")}>
+                    <span className="opacity-50">[{format(new Date(log.timestamp), "HH:mm:ss")}]</span> {log.message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default PipelineDetail;
