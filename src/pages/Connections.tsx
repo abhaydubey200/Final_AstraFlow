@@ -26,13 +26,17 @@ const Connections = () => {
   const updateMutation = useUpdateConnection();
   const deleteMutation = useDeleteConnection();
 
+  const testConnection = useTestConnection();
+  const schemaDiscovery = useSchemaDiscovery();
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<"success" | "failed" | null>(null);
+  const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [formData, setFormData] = useState<ConnectionFormData>(emptyForm);
   const [search, setSearch] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [schemaData, setSchemaData] = useState<SchemaTable[] | null>(null);
+  const [showSchema, setShowSchema] = useState(false);
 
   const openNew = () => {
     setFormData(emptyForm);
