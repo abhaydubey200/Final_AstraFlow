@@ -24,6 +24,7 @@ const navItems = [
   { icon: Activity, label: "Monitoring", path: "/monitoring" },
   { icon: Layers, label: "Data Catalog", path: "/catalog" },
   { icon: Shield, label: "Governance", path: "/governance" },
+  { icon: Bell, label: "Alerts", path: "/alerts" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
