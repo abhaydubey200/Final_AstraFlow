@@ -25,6 +25,7 @@ export interface AlertRule {
   config: Record<string, unknown>;
   enabled: boolean;
   created_by: string | null;
+  notify_email: string | null;
   created_at: string;
   updated_at: string;
 }
