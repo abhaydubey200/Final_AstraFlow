@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseUntyped as supabase } from "@/integrations/supabase/untyped-client";
 import type { PipelineRun, ExecutionLog, RunStatus, LogLevel } from "@/types/execution";
 
 const RUNS_KEY = ["pipeline_runs"];

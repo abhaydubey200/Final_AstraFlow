@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseUntyped as supabase } from "@/integrations/supabase/untyped-client";
 import type { Connection, ConnectionFormData } from "@/types/connection";
 
 const CONNECTIONS_KEY = ["connections"];
