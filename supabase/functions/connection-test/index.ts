@@ -7,8 +7,7 @@ const corsHeaders = {
 };
 
 interface ConnTestRequest {
-  connection_id?: string; // test existing connection
-  // OR inline params for testing before save:
+  connection_id?: string;
   type?: string;
   host?: string;
   port?: number;
@@ -16,6 +15,7 @@ interface ConnTestRequest {
   username?: string;
   password?: string;
   ssl_enabled?: boolean;
+  timeout_seconds?: number;
 }
 
 interface ConnTestResult {
@@ -64,6 +64,7 @@ Deno.serve(async (req) => {
     }
 
     const body: ConnTestRequest = await req.json();
+    const timeoutMs = Math.max(5000, Math.min(300000, (body.timeout_seconds || 30) * 1000));
     let connParams: { type: string; host: string; port: number; database_name: string; username: string; password: string; ssl_enabled: boolean };
 
     if (body.connection_id) {
@@ -113,16 +114,26 @@ Deno.serve(async (req) => {
     const startTime = Date.now();
     let result: ConnTestResult;
 
-    if (connParams.type === "postgresql") {
-      result = await testPostgres(connParams);
-    } else if (connParams.type === "mysql") {
-      result = await testMySQL(connParams);
-    } else if (connParams.type === "mssql") {
-      result = await testMSSQL(connParams);
-    } else if (connParams.type === "snowflake") {
-      result = await testSnowflake(connParams);
-    } else {
-      result = { success: false, latency_ms: 0, error: `Unsupported type: ${connParams.type}` };
+    const timeoutPromise = new Promise<ConnTestResult>((_, reject) =>
+      setTimeout(() => reject(new Error(`Connection timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+    );
+
+    try {
+      let testPromise: Promise<ConnTestResult>;
+      if (connParams.type === "postgresql") {
+        testPromise = testPostgres(connParams);
+      } else if (connParams.type === "mysql") {
+        testPromise = testMySQL(connParams);
+      } else if (connParams.type === "mssql") {
+        testPromise = testMSSQL(connParams);
+      } else if (connParams.type === "snowflake") {
+        testPromise = testSnowflake(connParams);
+      } else {
+        testPromise = Promise.resolve({ success: false, latency_ms: 0, error: `Unsupported type: ${connParams.type}` });
+      }
+      result = await Promise.race([testPromise, timeoutPromise]);
+    } catch (e) {
+      result = { success: false, latency_ms: Date.now() - startTime, error: (e as Error).message };
     }
 
     result.latency_ms = Date.now() - startTime;

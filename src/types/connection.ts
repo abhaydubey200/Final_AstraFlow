@@ -27,6 +27,7 @@ export interface ConnectionFormData {
   username: string;
   password: string;
   ssl_enabled: boolean;
+  timeout_seconds: number;
 }
 
 export const CONNECTION_TYPE_LABELS: Record<ConnectionType, string> = {

@@ -98,6 +98,7 @@ export interface TestConnectionParams {
   username?: string;
   password?: string;
   ssl_enabled?: boolean;
+  timeout_seconds?: number;
 }
 
 export interface TestConnectionResult {
