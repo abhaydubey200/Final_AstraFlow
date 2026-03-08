@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { usePipeline, useUpdatePipeline, useDeletePipeline } from "@/hooks/use-pipelines";
+import type { ScheduleType } from "@/types/pipeline";
 import { usePipelineRuns, useExecutionLogs, useTriggerRun } from "@/hooks/use-executions";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
