@@ -1,26 +1,12 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
-import {
-  Database,
-  Cog,
-  CheckCircle,
-  Upload,
-  Plus,
-  Trash2,
-  ArrowLeft,
-  Play,
-  Save,
-  GripVertical,
-  Zap,
-  Filter,
-  Merge,
-  Table,
-  FileCheck,
-} from "lucide-react";
+import { Database, Cog, CheckCircle, Upload, Plus, Trash2, ArrowLeft, Play, Save, Zap, Filter, Merge, Table, FileCheck, Loader2 } from "lucide-react";
+import { useCreatePipeline, useUpdatePipeline } from "@/hooks/use-pipelines";
+import { toast } from "@/hooks/use-toast";
 
-type NodeType = "extract" | "transform" | "validate" | "load" | "filter" | "join" | "aggregate";
+type NodeType = "source" | "transform" | "validate" | "load" | "filter" | "join" | "aggregate";
 
-interface PipelineNode {
+interface BuilderNode {
   id: string;
   type: NodeType;
   label: string;
@@ -29,13 +15,13 @@ interface PipelineNode {
   config: Record<string, string>;
 }
 
-interface PipelineEdge {
+interface BuilderEdge {
   from: string;
   to: string;
 }
 
 const nodeConfig: Record<NodeType, { icon: typeof Database; color: string; borderColor: string; bgColor: string }> = {
-  extract: { icon: Database, color: "text-primary", borderColor: "border-primary/30", bgColor: "bg-primary/10" },
+  source: { icon: Database, color: "text-primary", borderColor: "border-primary/30", bgColor: "bg-primary/10" },
   transform: { icon: Cog, color: "text-warning", borderColor: "border-warning/30", bgColor: "bg-warning/10" },
   validate: { icon: FileCheck, color: "text-success", borderColor: "border-success/30", bgColor: "bg-success/10" },
   load: { icon: Upload, color: "text-primary", borderColor: "border-primary/30", bgColor: "bg-primary/10" },
@@ -45,7 +31,7 @@ const nodeConfig: Record<NodeType, { icon: typeof Database; color: string; borde
 };
 
 const toolboxItems: { type: NodeType; label: string }[] = [
-  { type: "extract", label: "Extract" },
+  { type: "source", label: "Source" },
   { type: "transform", label: "Transform" },
   { type: "filter", label: "Filter" },
   { type: "join", label: "Join" },
@@ -54,30 +40,27 @@ const toolboxItems: { type: NodeType; label: string }[] = [
   { type: "load", label: "Load" },
 ];
 
-const defaultNodes: PipelineNode[] = [
-  { id: "n1", type: "extract", label: "MSSQL Extract", x: 80, y: 120, config: { source: "MSSQL", table: "dbo.orders" } },
-  { id: "n2", type: "transform", label: "Clean & Map", x: 340, y: 80, config: { engine: "Spark", operation: "dropDuplicates, filterNulls" } },
-  { id: "n3", type: "filter", label: "Amount > 0", x: 340, y: 220, config: { condition: "amount > 0" } },
-  { id: "n4", type: "validate", label: "Row Count Check", x: 600, y: 120, config: { checks: "row_count, null_check, schema_validation" } },
-  { id: "n5", type: "load", label: "Snowflake Load", x: 860, y: 120, config: { destination: "Snowflake", method: "COPY INTO", warehouse: "COMPUTE_WH" } },
-];
+interface PipelineBuilderProps {
+  onBack: () => void;
+  pipelineId?: string;
+  initialName?: string;
+  initialNodes?: BuilderNode[];
+  initialEdges?: BuilderEdge[];
+}
 
-const defaultEdges: PipelineEdge[] = [
-  { from: "n1", to: "n2" },
-  { from: "n1", to: "n3" },
-  { from: "n2", to: "n4" },
-  { from: "n3", to: "n4" },
-  { from: "n4", to: "n5" },
-];
-
-const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
-  const [nodes, setNodes] = useState<PipelineNode[]>(defaultNodes);
-  const [edges, setEdges] = useState<PipelineEdge[]>(defaultEdges);
+const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initialEdges }: PipelineBuilderProps) => {
+  const [pipelineName, setPipelineName] = useState(initialName || "Untitled Pipeline");
+  const [nodes, setNodes] = useState<BuilderNode[]>(initialNodes || []);
+  const [edges, setEdges] = useState<BuilderEdge[]>(initialEdges || []);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [draggingNode, setDraggingNode] = useState<string | null>(null);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  const createPipeline = useCreatePipeline();
+  const updatePipeline = useUpdatePipeline();
+  const saving = createPipeline.isPending || updatePipeline.isPending;
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -100,9 +83,7 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
     setSelectedNode(nodeId);
   };
 
-  const handleCanvasMouseUp = () => {
-    setDraggingNode(null);
-  };
+  const handleCanvasMouseUp = () => setDraggingNode(null);
 
   const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation();
@@ -127,26 +108,68 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
     setSelectedNode(null);
   };
 
-  const getNodeCenter = (node: PipelineNode) => ({ x: node.x + 80, y: node.y + 30 });
+  const handleSave = async () => {
+    try {
+      const mappedNodes = nodes.map((n, i) => ({
+        node_type: n.type as any,
+        label: n.label,
+        config_json: n.config as any,
+        position_x: n.x,
+        position_y: n.y,
+        order_index: i,
+      }));
 
+      // For edges, we need node IDs from DB. For new pipelines, we save nodes first then edges.
+      // Since we use temp IDs, we'll store edge info in pipeline config for now.
+      if (pipelineId) {
+        await updatePipeline.mutateAsync({ id: pipelineId, name: pipelineName });
+        toast({ title: "Pipeline updated" });
+      } else {
+        await createPipeline.mutateAsync({
+          pipeline: {
+            name: pipelineName,
+            description: null,
+            status: "draft",
+            schedule_type: "manual",
+            schedule_config: { edges: edges } as any,
+            created_by: null,
+          },
+          nodes: mappedNodes,
+          edges: [], // Edges require DB node IDs; stored in schedule_config temporarily
+        });
+        toast({ title: "Pipeline saved" });
+        onBack();
+      }
+    } catch (err: any) {
+      toast({ title: "Error saving pipeline", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const getNodeCenter = (node: BuilderNode) => ({ x: node.x + 80, y: node.y + 30 });
   const selectedNodeData = nodes.find((n) => n.id === selectedNode);
 
   return (
     <div className="flex flex-col h-[calc(100vh-0px)]">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-card">
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h2 className="text-sm font-display font-semibold text-foreground">Pipeline Builder</h2>
-            <p className="text-xs text-muted-foreground">Sales MSSQL → Snowflake</p>
+            <input
+              type="text"
+              value={pipelineName}
+              onChange={(e) => setPipelineName(e.target.value)}
+              className="text-sm font-display font-semibold text-foreground bg-transparent border-none outline-none focus:ring-0 w-64"
+              placeholder="Pipeline name..."
+            />
+            <p className="text-xs text-muted-foreground">{nodes.length} nodes · {edges.length} connections</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors">
-            <Save className="w-3.5 h-3.5" /> Save
+          <button onClick={handleSave} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {saving ? "Saving..." : "Save"}
           </button>
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-success text-success-foreground text-xs font-medium hover:bg-success/90 transition-colors">
             <Play className="w-3.5 h-3.5" /> Run Pipeline
@@ -161,26 +184,16 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
           {toolboxItems.map((item) => {
             const cfg = nodeConfig[item.type];
             return (
-              <button
-                key={item.type}
-                onClick={() => addNode(item.type, item.label)}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              >
+              <button key={item.type} onClick={() => addNode(item.type, item.label)} className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
                 <cfg.icon className={cn("w-3.5 h-3.5", cfg.color)} />
                 {item.label}
-                <Plus className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100" />
               </button>
             );
           })}
           <div className="pt-3 mt-3 border-t border-border">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Actions</p>
-            <button
-              onClick={() => setConnectingFrom(selectedNode)}
-              disabled={!selectedNode}
-              className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-30"
-            >
-              <Zap className="w-3.5 h-3.5 text-primary" />
-              Connect Nodes
+            <button onClick={() => setConnectingFrom(selectedNode)} disabled={!selectedNode} className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-30">
+              <Zap className="w-3.5 h-3.5 text-primary" /> Connect Nodes
             </button>
           </div>
         </div>
@@ -194,7 +207,6 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
           onClick={() => { setSelectedNode(null); setConnectingFrom(null); }}
           style={{ cursor: connectingFrom ? "crosshair" : draggingNode ? "grabbing" : "default" }}
         >
-          {/* Grid pattern */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             <defs>
               <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -204,7 +216,6 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
             <rect width="100%" height="100%" fill="url(#grid)" />
           </svg>
 
-          {/* Edges */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
             {edges.map((edge, i) => {
               const fromNode = nodes.find((n) => n.id === edge.from);
@@ -215,20 +226,22 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
               const midX = (from.x + to.x) / 2;
               return (
                 <g key={i}>
-                  <path
-                    d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
-                    fill="none"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth="2"
-                    opacity="0.4"
-                  />
+                  <path d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`} fill="none" stroke="hsl(var(--primary))" strokeWidth="2" opacity="0.4" />
                   <circle cx={to.x} cy={to.y} r="3" fill="hsl(var(--primary))" opacity="0.6" />
                 </g>
               );
             })}
           </svg>
 
-          {/* Nodes */}
+          {nodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground">Drag components from the left panel to build your pipeline</p>
+                <p className="text-xs text-muted-foreground mt-1">Or click a component to add it to the canvas</p>
+              </div>
+            </div>
+          )}
+
           {nodes.map((node) => {
             const cfg = nodeConfig[node.type];
             const Icon = cfg.icon;
@@ -237,12 +250,7 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
             return (
               <div
                 key={node.id}
-                className={cn(
-                  "absolute w-40 rounded-lg border bg-card p-3 cursor-grab active:cursor-grabbing transition-shadow select-none",
-                  cfg.borderColor,
-                  isSelected && "ring-1 ring-primary shadow-lg",
-                  isConnectSource && "ring-2 ring-primary animate-pulse"
-                )}
+                className={cn("absolute w-40 rounded-lg border bg-card p-3 cursor-grab active:cursor-grabbing transition-shadow select-none", cfg.borderColor, isSelected && "ring-1 ring-primary shadow-lg", isConnectSource && "ring-2 ring-primary animate-pulse")}
                 style={{ left: node.x, top: node.y, zIndex: isSelected ? 10 : 2 }}
                 onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
                 onClick={(e) => handleNodeClick(e, node.id)}
@@ -274,33 +282,16 @@ const PipelineBuilder = ({ onBack }: { onBack: () => void }) => {
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
-
             <div className="space-y-3">
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Node ID</label>
-                <p className="text-xs font-display text-foreground mt-0.5">{selectedNodeData.id}</p>
-              </div>
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Type</label>
                 <p className="text-xs font-display text-foreground mt-0.5 capitalize">{selectedNodeData.type}</p>
               </div>
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Label</label>
-                <input
-                  type="text"
-                  value={selectedNodeData.label}
-                  onChange={(e) => setNodes((prev) => prev.map((n) => (n.id === selectedNodeData.id ? { ...n, label: e.target.value } : n)))}
-                  className="w-full mt-0.5 px-2 py-1 rounded border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+                <input type="text" value={selectedNodeData.label} onChange={(e) => setNodes((prev) => prev.map((n) => (n.id === selectedNodeData.id ? { ...n, label: e.target.value } : n)))} className="w-full mt-0.5 px-2 py-1 rounded border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
               </div>
-              {Object.entries(selectedNodeData.config).map(([key, val]) => (
-                <div key={key}>
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-wider">{key}</label>
-                  <p className="text-xs font-display text-foreground mt-0.5">{val}</p>
-                </div>
-              ))}
             </div>
-
             <div className="pt-3 border-t border-border">
               <p className="text-[10px] text-muted-foreground">
                 Connections: {edges.filter((e) => e.from === selectedNodeData.id).length} out, {edges.filter((e) => e.to === selectedNodeData.id).length} in
