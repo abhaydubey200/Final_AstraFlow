@@ -46,6 +46,7 @@ const formatDate = (d: string) => {
 
 const Pipelines = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: pipelines = [], isLoading } = usePipelines();
   const deleteMutation = useDeletePipeline();
   const duplicateMutation = useDuplicatePipeline();
