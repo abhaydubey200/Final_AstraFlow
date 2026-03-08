@@ -17,7 +17,7 @@ const connectionTypes: { type: ConnectionType; label: string; icon: typeof Datab
 const getIcon = (type: string) => connectionTypes.find((c) => c.type === type)?.icon || Database;
 
 const emptyForm: ConnectionFormData = {
-  name: "", type: "mssql", host: "", port: 1433, database_name: "", username: "", password: "", ssl_enabled: false,
+  name: "", type: "mssql", host: "", port: 1433, database_name: "", username: "", password: "", ssl_enabled: false, timeout_seconds: 30,
 };
 
 const Connections = () => {
