@@ -5,3 +5,12 @@ verify_jwt = false
 
 [functions.simulate-run]
 verify_jwt = false
+
+[functions.connection-test]
+verify_jwt = false
+
+[functions.schema-discovery]
+verify_jwt = false
+
+[functions.pipeline-validate]
+verify_jwt = false
