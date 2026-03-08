@@ -12,6 +12,7 @@ import {
   ScrollText,
   LogOut,
   Bell,
+  BookOpen,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const navItems = [
   { icon: Layers, label: "Data Catalog", path: "/catalog" },
   { icon: Shield, label: "Governance", path: "/governance" },
   { icon: Bell, label: "Alerts", path: "/alerts" },
+  { icon: BookOpen, label: "User Guide", path: "/docs" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 

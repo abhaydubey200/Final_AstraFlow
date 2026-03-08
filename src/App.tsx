@@ -20,6 +20,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import AuthPage from "@/pages/AuthPage";
 import ResetPassword from "@/pages/ResetPassword";
 import AlertsPage from "@/pages/AlertsPage";
+import DocsPage from "@/pages/DocsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,6 +53,7 @@ const App = () => (
                       <Route path="/catalog" element={<Catalog />} />
                       <Route path="/governance" element={<Governance />} />
                       <Route path="/alerts" element={<AlertsPage />} />
+                      <Route path="/docs" element={<DocsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
