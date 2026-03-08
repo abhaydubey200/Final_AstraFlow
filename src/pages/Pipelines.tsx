@@ -103,9 +103,7 @@ const Pipelines = () => {
       </div>
 
       {isLoading ? (
-        <div className="rounded-lg border border-border bg-card p-16 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        <PipelinesSkeleton />
       ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-16 flex flex-col items-center text-center">
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
