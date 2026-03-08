@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      connections: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          database_name: string
+          host: string
+          id: string
+          last_tested_at: string | null
+          name: string
+          port: number
+          ssl_enabled: boolean
+          status: string
+          type: string
+          updated_at: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          database_name?: string
+          host: string
+          id?: string
+          last_tested_at?: string | null
+          name: string
+          port?: number
+          ssl_enabled?: boolean
+          status?: string
+          type: string
+          updated_at?: string
+          username?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          database_name?: string
+          host?: string
+          id?: string
+          last_tested_at?: string | null
+          name?: string
+          port?: number
+          ssl_enabled?: boolean
+          status?: string
+          type?: string
+          updated_at?: string
+          username?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
