@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import Pipelines from "@/pages/Pipelines";
+import PipelineDetail from "@/pages/PipelineDetail";
+import PipelineBuilderPage from "@/pages/PipelineBuilderPage";
 import Connections from "@/pages/Connections";
 import Monitoring from "@/pages/Monitoring";
 import ExecutionLogs from "@/pages/ExecutionLogs";
@@ -26,6 +28,9 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/pipelines" element={<Pipelines />} />
+            <Route path="/pipelines/new" element={<PipelineBuilderPage />} />
+            <Route path="/pipelines/:id" element={<PipelineDetail />} />
+            <Route path="/pipelines/:id/edit" element={<PipelineBuilderPage />} />
             <Route path="/connections" element={<Connections />} />
             <Route path="/logs" element={<ExecutionLogs />} />
             <Route path="/monitoring" element={<Monitoring />} />

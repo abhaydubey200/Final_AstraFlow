@@ -1,6 +1,8 @@
+import { useNavigate } from "react-router-dom";
 import MetricCard from "@/components/MetricCard";
-import { Activity, CheckCircle, XCircle, Clock, Zap, Server } from "lucide-react";
+import { Activity, CheckCircle, XCircle, Clock, Zap, AlertTriangle } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { cn } from "@/lib/utils";
 
 const throughputData = [
   { time: "00:00", rows: 120000 },
@@ -31,10 +33,17 @@ const statusDistribution = [
 ];
 
 const alerts = [
-  { id: 1, severity: "critical", message: "Product Catalog Sync failed: Schema mismatch", time: "22 min ago" },
-  { id: 2, severity: "warning", message: "Marketing API connection timeout (retry 2/3)", time: "3 hrs ago" },
-  { id: 3, severity: "info", message: "Financial Reports ETL completed successfully", time: "12 hrs ago" },
+  { id: 1, severity: "critical" as const, message: "Product Catalog Sync failed: Schema mismatch", time: "22 min ago" },
+  { id: 2, severity: "warning" as const, message: "Marketing API connection timeout (retry 2/3)", time: "3 hrs ago" },
+  { id: 3, severity: "info" as const, message: "Financial Reports ETL completed successfully", time: "12 hrs ago" },
+  { id: 4, severity: "warning" as const, message: "Snowflake warehouse COMPUTE_WH near capacity", time: "1 day ago" },
 ];
+
+const severityConfig = {
+  critical: { icon: XCircle, color: "text-destructive", border: "border-destructive/20", bg: "bg-destructive/5", badge: "bg-destructive/10 text-destructive border-destructive/20" },
+  warning: { icon: AlertTriangle, color: "text-warning", border: "border-warning/20", bg: "bg-warning/5", badge: "bg-warning/10 text-warning border-warning/20" },
+  info: { icon: CheckCircle, color: "text-success", border: "border-border", bg: "bg-muted/20", badge: "bg-muted text-muted-foreground border-border" },
+};
 
 const customTooltipStyle = {
   backgroundColor: "hsl(222, 44%, 8%)",
@@ -46,6 +55,8 @@ const customTooltipStyle = {
 };
 
 const Monitoring = () => {
+  const navigate = useNavigate();
+
   return (
     <div className="p-6 lg:p-8 space-y-8">
       <div>
@@ -53,7 +64,6 @@ const Monitoring = () => {
         <p className="text-sm text-muted-foreground mt-1">Real-time pipeline health and performance metrics</p>
       </div>
 
-      {/* Summary Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard title="Total Runs (24h)" value={165} icon={Activity} variant="primary" trend={{ value: "18% vs yesterday", positive: true }} />
         <MetricCard title="Success Rate" value="97.6%" icon={CheckCircle} variant="success" />
@@ -61,9 +71,7 @@ const Monitoring = () => {
         <MetricCard title="Data Processed" value="48.3M rows" icon={Zap} variant="primary" />
       </div>
 
-      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Throughput Chart */}
         <div className="rounded-lg border border-border bg-card p-5">
           <h3 className="text-sm font-display font-semibold text-foreground mb-4">Data Throughput (Rows)</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -83,7 +91,6 @@ const Monitoring = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Execution Time Trend */}
         <div className="rounded-lg border border-border bg-card p-5">
           <h3 className="text-sm font-display font-semibold text-foreground mb-4">Avg Execution Time (min)</h3>
           <ResponsiveContainer width="100%" height={220}>
@@ -99,7 +106,6 @@ const Monitoring = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Status Distribution */}
         <div className="rounded-lg border border-border bg-card p-5">
           <h3 className="text-sm font-display font-semibold text-foreground mb-4">Run Status (24h)</h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -109,39 +115,34 @@ const Monitoring = () => {
                   <Cell key={i} fill={entry.color} />
                 ))}
               </Pie>
-              <Legend
-                formatter={(value) => <span style={{ color: "hsl(215, 20%, 55%)", fontSize: "11px" }}>{value}</span>}
-                iconSize={8}
-              />
+              <Legend formatter={(value) => <span style={{ color: "hsl(215, 20%, 55%)", fontSize: "11px" }}>{value}</span>} iconSize={8} />
               <Tooltip contentStyle={customTooltipStyle} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Alerts */}
         <div className="lg:col-span-2 rounded-lg border border-border bg-card p-5">
-          <h3 className="text-sm font-display font-semibold text-foreground mb-4">Recent Alerts</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-display font-semibold text-foreground">Recent Alerts</h3>
+            <button onClick={() => navigate("/logs")} className="text-xs text-primary hover:underline">View All →</button>
+          </div>
           <div className="space-y-3">
-            {alerts.map((alert) => (
-              <div
-                key={alert.id}
-                className={`flex items-start gap-3 p-3 rounded-md border ${
-                  alert.severity === "critical" ? "border-destructive/20 bg-destructive/5" : alert.severity === "warning" ? "border-warning/20 bg-warning/5" : "border-border bg-muted/20"
-                }`}
-              >
-                {alert.severity === "critical" ? (
-                  <XCircle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
-                ) : alert.severity === "warning" ? (
-                  <Clock className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
-                ) : (
-                  <CheckCircle className="w-4 h-4 text-success mt-0.5 flex-shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground">{alert.message}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{alert.time}</p>
+            {alerts.map((alert) => {
+              const cfg = severityConfig[alert.severity];
+              const Icon = cfg.icon;
+              return (
+                <div key={alert.id} className={cn("flex items-start gap-3 p-3 rounded-md border", cfg.border, cfg.bg)}>
+                  <Icon className={cn("w-4 h-4 mt-0.5 flex-shrink-0", cfg.color)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground">{alert.message}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{alert.time}</p>
+                  </div>
+                  <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize", cfg.badge)}>
+                    {alert.severity}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
