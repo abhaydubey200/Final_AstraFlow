@@ -7,8 +7,7 @@ const corsHeaders = {
 };
 
 interface ConnTestRequest {
-  connection_id?: string; // test existing connection
-  // OR inline params for testing before save:
+  connection_id?: string;
   type?: string;
   host?: string;
   port?: number;
@@ -16,6 +15,7 @@ interface ConnTestRequest {
   username?: string;
   password?: string;
   ssl_enabled?: boolean;
+  timeout_seconds?: number;
 }
 
 interface ConnTestResult {
