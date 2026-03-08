@@ -86,3 +86,89 @@ export function useDeleteConnection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   });
 }
+
+// --- New backend-powered hooks ---
+
+export interface TestConnectionParams {
+  connection_id?: string;
+  type?: string;
+  host?: string;
+  port?: number;
+  database_name?: string;
+  username?: string;
+  password?: string;
+  ssl_enabled?: boolean;
+}
+
+export interface TestConnectionResult {
+  success: boolean;
+  latency_ms: number;
+  server_version?: string;
+  error?: string;
+  tables_count?: number;
+}
+
+export function useTestConnection() {
+  const qc = useQueryClient();
+  return useMutation<TestConnectionResult, Error, TestConnectionParams>({
+    mutationFn: async (params) => {
+      const { data, error } = await supabase.functions.invoke("connection-test", {
+        body: params,
+      });
+      if (error) throw error;
+      return data as TestConnectionResult;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
+  });
+}
+
+export interface SchemaTable {
+  table_name: string;
+  schema_name: string;
+  row_count_estimate: number;
+  columns: {
+    name: string;
+    data_type: string;
+    is_nullable: boolean;
+    is_primary_key: boolean;
+    default_value: string | null;
+  }[];
+}
+
+export interface SchemaDiscoveryResult {
+  tables: SchemaTable[];
+  supported: boolean;
+  count?: number;
+  message?: string;
+}
+
+export function useSchemaDiscovery() {
+  return useMutation<SchemaDiscoveryResult, Error, { connection_id: string; password: string }>({
+    mutationFn: async (params) => {
+      const { data, error } = await supabase.functions.invoke("schema-discovery", {
+        body: params,
+      });
+      if (error) throw error;
+      return data as SchemaDiscoveryResult;
+    },
+  });
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: { node_id?: string; field: string; message: string; severity: "error" | "warning" }[];
+  warnings: { node_id?: string; field: string; message: string; severity: "error" | "warning" }[];
+  dag: { stages: string[]; node_count: number; edge_count: number } | null;
+}
+
+export function useValidatePipeline() {
+  return useMutation<ValidationResult, Error, string>({
+    mutationFn: async (pipelineId) => {
+      const { data, error } = await supabase.functions.invoke("pipeline-validate", {
+        body: { pipeline_id: pipelineId },
+      });
+      if (error) throw error;
+      return data as ValidationResult;
+    },
+  });
+}
