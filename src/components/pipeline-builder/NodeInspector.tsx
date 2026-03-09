@@ -1,6 +1,9 @@
 import { cn } from "@/lib/utils";
 import { BuilderNode, BuilderEdge, NODE_CONFIG } from "./types";
 import { Trash2, X } from "lucide-react";
+import SourceNodeConfig from "./SourceNodeConfig";
+import LoadNodeConfig from "./LoadNodeConfig";
+import ColumnMappingConfig from "./ColumnMappingConfig";
 
 interface Props {
   node: BuilderNode;
@@ -19,7 +22,7 @@ export default function NodeInspector({ node, edges, nodes, onUpdate, onDelete, 
   const inEdges = edges.filter((e) => e.to === node.id);
 
   return (
-    <div className="w-64 border-l border-border bg-card p-3 space-y-3 overflow-y-auto animate-fade-in">
+    <div className="w-72 border-l border-border bg-card p-3 space-y-3 overflow-y-auto animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={cn("w-6 h-6 rounded flex items-center justify-center", cfg.bg)}>
@@ -46,6 +49,23 @@ export default function NodeInspector({ node, edges, nodes, onUpdate, onDelete, 
           className="w-full px-2.5 py-1.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
+
+      {/* Source Node Configuration */}
+      {node.type === "source" && (
+        <div className="pt-2 border-t border-border">
+          <SourceNodeConfig node={node} onUpdate={onUpdate} />
+        </div>
+      )}
+
+      {/* Load Node Configuration */}
+      {node.type === "load" && (
+        <div className="pt-2 border-t border-border">
+          <LoadNodeConfig node={node} onUpdate={onUpdate} />
+          <div className="mt-3 pt-2 border-t border-border">
+            <ColumnMappingConfig node={node} nodes={nodes} edges={edges} onUpdate={onUpdate} />
+          </div>
+        </div>
+      )}
 
       <div className="pt-2 border-t border-border">
         <div className="flex gap-3 text-[11px] text-muted-foreground">
