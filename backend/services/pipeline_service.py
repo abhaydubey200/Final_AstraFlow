@@ -148,6 +148,17 @@ class PipelineService:
                     task_name = node.get("label", "Unnamed Task")
                     task_type = type_mapping.get(node.get("node_type", "").lower(), "SQL")
                     config = node.get("config_json", {})
+                    if not isinstance(config, dict):
+                        try: config = json.loads(config)
+                        except: config = {}
+                    
+                    # Inject connection_id if exists in node top-level
+                    if node.get("connection_id"):
+                        config["connection_id"] = node["connection_id"]
+                    
+                    # Ensure table_name/source_table exists
+                    if not config.get("table_name"):
+                        config["table_name"] = node.get("table_name") or node.get("source_table") or node.get("target_table")
                     
                     # Store Task (Mock will generate ID)
                     await conn.execute(
@@ -213,6 +224,19 @@ class PipelineService:
                     pass # Ignore invalid UUID filters
             query += " ORDER BY start_time DESC"
             rows = await conn.fetch(query, *params)
+            return [dict(r) for r in rows]
+
+    async def list_run_tasks(self, run_id: str) -> List[Dict[str, Any]]:
+        """Fetches all tasks associated with a specific pipeline run."""
+        try:
+            r_uuid = uuid.UUID(run_id)
+        except ValueError:
+            return []
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM public.task_runs WHERE run_id = $1 ORDER BY started_at ASC",
+                r_uuid
+            )
             return [dict(r) for r in rows]
 
     async def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:

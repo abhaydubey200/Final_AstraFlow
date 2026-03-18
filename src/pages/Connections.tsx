@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+
 import {
   Plus, Search, Database, Snowflake, Server, Loader2, RefreshCw, Activity, ShieldCheck, Globe2, Eye, Trash2
 } from "lucide-react";
@@ -6,7 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   useConnections, useCreateConnection, useUpdateConnection,
   useDeleteConnection, useTestConnection, useSchemaDiscovery,
-  useResourceDiscovery,
+  useResourceDiscovery, useConnectorTypes,
 } from "@/hooks/use-connections";
 import type { TestConnectionResult, SchemaTable } from "@/hooks/use-connections";
 import type { Connection, ConnectionType, ConnectionFormData } from "@/types/connection";
@@ -77,12 +79,15 @@ const emptyForm: ConnectionFormData = {
 };
 
 const Connections = () => {
+  const navigate = useNavigate();
   const { data: connections = [], isLoading } = useConnections();
+
   const createMutation = useCreateConnection();
   const updateMutation = useUpdateConnection();
   const deleteMutation = useDeleteConnection();
   const testMutation = useTestConnection();
   const schemaMutation = useSchemaDiscovery();
+  const { data: connectorTypes = {} } = useConnectorTypes();
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -271,7 +276,7 @@ const Connections = () => {
               <option value="disconnected">Offline</option>
             </select>
 
-            <Button onClick={openNew} className="h-12 px-8 rounded-2xl gap-3 font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-primary/30 ring-1 ring-primary/20">
+            <Button onClick={() => navigate("/connections/new")} className="h-12 px-8 rounded-2xl gap-3 font-black text-[11px] uppercase tracking-widest shadow-2xl shadow-primary/30 ring-1 ring-primary/20">
               <Plus className="w-5 h-5" /> Build Bridge
             </Button>
           </div>
@@ -432,6 +437,7 @@ const Connections = () => {
         onDiscoverResources={(p) => resourceDiscovery.mutateAsync(p)}
         testResult={testResult}
         dbConfigs={DB_TYPES}
+        connectorTypes={connectorTypes}
         isTesting={testMutation.isPending}
         isSaving={createMutation.isPending || updateMutation.isPending}
       />

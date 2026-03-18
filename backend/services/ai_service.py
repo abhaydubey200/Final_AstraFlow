@@ -79,6 +79,18 @@ class AIService:
                 "fix": "Re-run schema discovery and update your pipeline mapping.",
                 "confidence": 0.85
             }
+        if "timeout" in error_lower or "deadline exceeded" in error_lower:
+            return {
+                "reason": "Connection timed out. The server might be unreachable or behind a firewall.",
+                "fix": "Check your firewall settings and ensure the AstraFlow IP is whitelisted.",
+                "confidence": 0.80
+            }
+        if "authentication" in error_lower or "password" in error_lower or "ident" in error_lower:
+            return {
+                "reason": "Invalid credentials or authentication method mismatch.",
+                "fix": "Double-check your username and password. Ensure SSL is enabled if required by the server.",
+                "confidence": 0.90
+            }
             
         # Default AI-style summary
         return {

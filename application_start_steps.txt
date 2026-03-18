@@ -65,4 +65,4 @@ npm run dev
 
 Once both servers are running:
 - **Frontend App:** Open your browser and navigate to the Local URL provided by Vite (typically `http://localhost:5173`)
-- **Backend API Docs:** You can view the API documentation at `http://localhost:8088/docs`
+- **Backend API Docs:** You can view the API documentation at `http://localhost:8081/docs`

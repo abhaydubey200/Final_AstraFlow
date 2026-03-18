@@ -3,7 +3,7 @@ import json
 import time
 import os
 
-BASE_URL = "http://localhost:8088"
+BASE_URL = "http://localhost:8081"
 PIPELINE_ID = "bf21c85d-05ae-4202-a7a2-ad8cd4c9cec9"
 
 def verify_data_flow():

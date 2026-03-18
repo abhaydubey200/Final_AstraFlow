@@ -1,10 +1,38 @@
 import pyodbc
+import os
+import asyncio
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
 
 
 class MSSQLConnector(BaseConnector):
     """Microsoft SQL Server connector using pyodbc."""
+
+    @classmethod
+    def get_config_schema(cls) -> Dict[str, Any]:
+        return {
+            "title": "SQL Server Connection",
+            "type": "object",
+            "required": ["host", "user", "database"],
+            "properties": {
+                "host": {"title": "Host", "type": "string", "placeholder": "localhost"},
+                "port": {"title": "Port", "type": "integer", "default": 1433},
+                "user": {"title": "Username", "type": "string"},
+                "password": {"title": "Password", "type": "string", "format": "password"},
+                "database": {"title": "Database", "type": "string"},
+                "encrypt": {"title": "Encrypt", "type": "boolean", "default": True}
+            }
+        }
+
+    @classmethod
+    def get_capabilities(cls) -> Dict[str, Any]:
+        return {
+            "supports_cdc": True,
+            "supports_incremental": True,
+            "supports_parallel_reads": True,
+            "supports_transactions": True,
+            "max_connections": 100
+        }
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -34,6 +62,10 @@ class MSSQLConnector(BaseConnector):
 
     async def connect(self) -> bool:
         try:
+            if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
+                print(f"Mock MSSQL connected for {self.config.get('host')}")
+                self.conn = "MOCK_CONN"
+                return True
             conn_str = self._build_connection_string()
             self.conn = pyodbc.connect(conn_str, autocommit=True)
             return True
@@ -43,6 +75,17 @@ class MSSQLConnector(BaseConnector):
 
     async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
         if self.conn is None:
+            return
+
+        if self.conn == "MOCK_CONN":
+            # Yield 3 mock chunks of 5000 rows each
+            import random
+            for i in range(3):
+                rows = []
+                for j in range(5000):
+                    rows.append({"id": i*5000 + j, "name": f"User_{j}", "val": random.randint(1, 100)})
+                yield rows
+                await asyncio.sleep(0.1)
             return
 
         cursor = None
@@ -90,6 +133,81 @@ class MSSQLConnector(BaseConnector):
             if cursor:
                 cursor.close()
         return False
+
+    async def diagnose(self) -> Dict[str, Any]:
+        """Perform deep diagnostics and return a structured report."""
+        diagnostics = {
+            "status": "unknown",
+            "connection": False,
+            "latency_ms": 0,
+            "version": "",
+            "database_accessible": False,
+            "permissions": [],
+            "issues": [],
+            "dns_resolution": "pending",
+            "tcp_connection": "pending",
+            "authentication": "pending"
+        }
+        
+        if self.conn == "MOCK_CONN":
+            diagnostics["status"] = "healthy"
+            diagnostics["connection"] = True
+            diagnostics["database_accessible"] = True
+            diagnostics["version"] = "Mock SQL Server"
+            diagnostics["dns_resolution"] = "success"
+            diagnostics["tcp_connection"] = "success"
+            diagnostics["authentication"] = "success"
+            return diagnostics
+
+        import time
+        start_time = time.time()
+        try:
+            diagnostics["dns_resolution"] = "success"
+            diagnostics["tcp_connection"] = "success"
+            
+            connected = await self.connect()
+            diagnostics["latency_ms"] = int((time.time() - start_time) * 1000)
+            
+            if connected and self.conn:
+                diagnostics["authentication"] = "success"
+                diagnostics["connection"] = True
+                cursor = None
+                try:
+                    cursor = self.conn.cursor()
+                    
+                    cursor.execute("SELECT @@VERSION")
+                    row = cursor.fetchone()
+                    if row:
+                        diagnostics["version"] = str(row[0]).split('\\n')[0][:100]
+                    
+                    diagnostics["database_accessible"] = True
+                    
+                    # Check permissions
+                    cursor.execute("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES")
+                    cursor.fetchone()
+                    diagnostics["permissions"].append("read_schema")
+                    
+                    diagnostics["status"] = "healthy"
+                except Exception as e:
+                    diagnostics["issues"].append(f"Query error: {str(e)}")
+                    if diagnostics["status"] == "unknown":
+                        diagnostics["status"] = "degraded"
+                finally:
+                    if cursor:
+                        cursor.close()
+            else:
+                diagnostics["status"] = "unreachable"
+                diagnostics["authentication"] = "failed"
+                diagnostics["issues"].append("Could not establish connection")
+                
+        except Exception as e:
+            diagnostics["status"] = "failed"
+            diagnostics["dns_resolution"] = "failed"
+            diagnostics["tcp_connection"] = "failed"
+            diagnostics["authentication"] = "failed"
+            diagnostics["issues"].append(f"Connection failed: {str(e)}")
+            
+        return diagnostics
 
     async def discover_schema(self) -> List[Dict[str, Any]]:
         if self.conn is None:

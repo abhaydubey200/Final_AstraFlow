@@ -5,7 +5,7 @@ import sys
 import os
 
 # Base URL for the monitoring API
-BASE_URL = "http://127.0.0.1:8088/monitoring"
+BASE_URL = "http://127.0.0.1:8081/monitoring"
 
 async def verify_monitoring():
     print("Testing Monitoring APIs...")

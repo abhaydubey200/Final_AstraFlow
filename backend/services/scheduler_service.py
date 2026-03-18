@@ -14,7 +14,7 @@ class SchedulerService:
     async def schedule_ready_tasks(self):
         """
         Scans all 'running' pipeline runs and triggers tasks that are 'ready'.
-        A task is 'ready' if all its dependencies are 'success'.
+        A task is 'ready' if all its dependencies are 'completed'.
         """
         async with self.pool.acquire() as conn:
             # 1. Get all active pipeline runs
@@ -50,14 +50,14 @@ class SchedulerService:
                     task_id = task['id']
                     
                     # Already processed, running or queued?
-                    if status_map.get(task_id) in ['success', 'running', 'failed', 'queued']:
+                    if status_map.get(task_id) in ['completed', 'running', 'failed', 'queued']:
                         continue
 
                     # Check parent dependencies
                     parents = [d['parent_task_id'] for d in deps if d['child_task_id'] == task_id]
                     # Root tasks (no parents) are always ready. 
-                    # Others need all parents to be 'success'.
-                    if not parents or all(status_map.get(p_id) == 'success' for p_id in parents):
+                    # Others need all parents to be 'completed'.
+                    if not parents or all(status_map.get(p_id) == 'completed' for p_id in parents):
                         # Optimization: Check for failed parents to mark as skipped (Future Enhancement)
                         if any(status_map.get(p_id) == 'failed' for p_id in parents):
                              # For now just continue, in real system mark as 'upstream_failed'
@@ -65,6 +65,21 @@ class SchedulerService:
                              
                         # Task is ready!
                         await self._queue_task(conn, run_id, task_id)
+                
+                # 6. Check if all tasks are finished to close the run
+                if tasks and all(status_map.get(t['id']) == 'completed' for t in tasks):
+                    logger.info(f"Pipeline Run {run_id} finished successfully.")
+                    
+                    # Aggregate rows from staging_files
+                    total_rows = await conn.fetchval(
+                        "SELECT SUM(row_count) FROM public.staging_files WHERE pipeline_run_id = $1",
+                        run_id
+                    ) or 0
+                    
+                    await conn.execute(
+                        "UPDATE public.pipeline_runs SET run_status = 'completed', status = 'completed', rows_processed = $1, finished_at = NOW() WHERE id = $2",
+                        total_rows, run_id
+                    )
 
     async def _queue_task(self, conn, run_id: str, task_id: str):
         """Insert a record into task_runs to signal workers."""

@@ -38,6 +38,7 @@ interface WizardProps {
   onDiscoverResources: (params: any) => Promise<{ results: string[] }>;
   testResult: TestConnectionResult | null;
   dbConfigs: any[];
+  connectorTypes: Record<string, { schema: any; capabilities: any }>;
   isTesting: boolean;
   isSaving: boolean;
 }
@@ -46,20 +47,23 @@ type Step = "type" | "address" | "auth" | "security" | "verify" | "warehouse" | 
 
 export default function ConnectionWizard({
   open, onOpenChange, editingId, form, setForm, 
-  onTest, onSave, onDiscoverResources, testResult, dbConfigs, isTesting, isSaving
+  onTest, onSave, onDiscoverResources, testResult, dbConfigs, connectorTypes, isTesting, isSaving
 }: WizardProps) {
   const [step, setStep] = useState<Step>("type");
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
-  const [availableTables, setAvailableTables] = useState<string[]>([]);
+  const [availableTables, setAvailableTables] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoadingResources, setIsLoadingResources] = useState(false);
 
   // Filtered lists
   const filteredDatabases = databases.filter(db => db.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredSchemas = schemas.filter(s => s.toLowerCase().includes(searchTerm.toLowerCase()));
-  const filteredTables = availableTables.filter(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredTables = availableTables.filter(t => {
+    const name = typeof t === "string" ? t : t.name;
+    return name.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   useEffect(() => {
     if (open) {
@@ -69,7 +73,9 @@ export default function ConnectionWizard({
   }, [open, editingId]);
 
   const selectType = (type: ConnectionType) => {
-    setForm((p) => ({ ...p, type, port: DEFAULT_PORTS[type] }));
+    const schema = connectorTypes[type]?.schema;
+    const defaultPort = schema?.properties?.port?.default || 0;
+    setForm((p) => ({ ...p, type, port: defaultPort }));
     setStep("address");
   };
 
@@ -169,13 +175,17 @@ export default function ConnectionWizard({
     }
   };
 
-  const toggleTable = (table: string) => {
+  const toggleTable = (table: any) => {
+    const name = typeof table === "string" ? table : table.name;
     setForm(p => {
-      const current = p.selected_tables || [];
-      const updated = current.includes(table)
-        ? current.filter(t => t !== table)
-        : [...current, table];
-      return { ...p, selected_tables: updated };
+      const selected = p.selected_tables || [];
+      const isSelected = selected.includes(name);
+      return {
+        ...p,
+        selected_tables: isSelected 
+          ? selected.filter(t => t !== name) 
+          : [...selected, name]
+      };
     });
   };
 
@@ -256,24 +266,37 @@ export default function ConnectionWizard({
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4">Select Source Type</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      {dbConfigs.map((db) => (
-                        <button
-                          key={db.type}
-                          onClick={() => selectType(db.type)}
-                          className={cn(
-                            "flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all hover:shadow-xl hover:-translate-y-0.5 group text-center",
-                            form.type === db.type ? "border-primary bg-primary/5 shadow-lg shadow-primary/5" : "border-border/60 hover:border-primary/40"
-                          )}
-                        >
-                          <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform", db.color, "bg-muted/50")}>
-                            <db.icon className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-foreground">{db.label}</p>
-                            <p className="text-[10px] text-muted-foreground opacity-60">Standard Port {DEFAULT_PORTS[db.type]}</p>
-                          </div>
-                        </button>
-                      ))}
+                      {Object.keys(connectorTypes).map((type) => {
+                        const db = dbConfigs.find(c => c.type === type) || {
+                          type,
+                          label: type.charAt(0).toUpperCase() + type.slice(1),
+                          icon: DatabaseIcon,
+                          color: "text-primary"
+                        };
+                        const schema = connectorTypes[type]?.schema;
+                        const defaultPort = schema?.properties?.port?.default;
+
+                        return (
+                          <button
+                            key={type}
+                            onClick={() => selectType(type as ConnectionType)}
+                            className={cn(
+                              "flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all hover:shadow-xl hover:-translate-y-0.5 group text-center",
+                              form.type === type ? "border-primary bg-primary/5 shadow-lg shadow-primary/5" : "border-border/60 hover:border-primary/40"
+                            )}
+                          >
+                            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform", db.color, "bg-muted/50")}>
+                              <db.icon className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-foreground">{db.label}</p>
+                              {defaultPort && (
+                                <p className="text-[10px] text-muted-foreground opacity-60">Standard Port {defaultPort}</p>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -285,26 +308,58 @@ export default function ConnectionWizard({
                     <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-1">Step 2: Server Address</h3>
                     <p className="text-xs text-muted-foreground mb-6">Tell us where your database server is located.</p>
                     <div className="grid grid-cols-4 gap-3">
-                      <div className="col-span-3 space-y-1.5">
-                        <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
-                          {form.type === "snowflake" ? "Account URL" : "Server Address (Host/IP)"}
-                        </Label>
-                        <Input 
-                          placeholder={dbConfig.placeholder.host}
-                          value={form.host}
-                          onChange={(e) => setForm(p => ({...p, host: e.target.value}))}
-                          className="h-10 bg-muted/20 border-border/50"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Port</Label>
-                        <Input 
-                          type="number"
-                          value={form.port}
-                          onChange={(e) => setForm(p => ({...p, port: parseInt(e.target.value) || 0}))}
-                          className="h-10 bg-muted/20 border-border/50 text-center font-mono"
-                        />
-                      </div>
+                      {/* Dynamically render common fields like host/port if they exist in schema */}
+                      {connectorTypes[form.type]?.schema?.properties?.host && (
+                        <div className="col-span-3 space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
+                            {connectorTypes[form.type]?.schema?.properties?.host?.title || (form.type === "snowflake" ? "Account URL" : "Server Address (Host/IP)")}
+                          </Label>
+                          <Input 
+                            placeholder={connectorTypes[form.type]?.schema?.properties?.host?.description || dbConfig.placeholder.host}
+                            value={form.host}
+                            onChange={(e) => setForm(p => ({...p, host: e.target.value}))}
+                            className="h-10 bg-muted/20 border-border/50"
+                          />
+                        </div>
+                      )}
+                      {connectorTypes[form.type]?.schema?.properties?.port && (
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Port</Label>
+                          <Input 
+                            type="number"
+                            value={form.port}
+                            onChange={(e) => setForm(p => ({...p, port: parseInt(e.target.value) || 0}))}
+                            className="h-10 bg-muted/20 border-border/50 text-center font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Render extra fields that are not host/port/username/password but are in the schema */}
+                    <div className="mt-4 space-y-4">
+                      {Object.entries(connectorTypes[form.type]?.schema?.properties || {})
+                        .filter(([key]) => !["host", "port", "username", "password", "ssl_enabled", "name", "type"].includes(key))
+                        .map(([key, prop]: [string, any]) => (
+                          <div key={key} className="space-y-1.5">
+                            <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">{prop.title || key}</Label>
+                            {prop.type === "boolean" ? (
+                              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/20 border border-border/30">
+                                <span className="text-xs text-muted-foreground">{prop.description}</span>
+                                <Switch 
+                                  checked={!!(form as any)[key]}
+                                  onCheckedChange={(v) => setForm(p => ({...p, [key]: v}))}
+                                />
+                              </div>
+                            ) : (
+                              <Input 
+                                placeholder={prop.description}
+                                value={(form as any)[key] || ""}
+                                onChange={(e) => setForm(p => ({...p, [key]: e.target.value}))}
+                                className="h-10 bg-muted/20 border-border/50"
+                              />
+                            )}
+                          </div>
+                        ))}
                     </div>
                     
                     <div className="mt-6 flex items-center justify-between p-3 rounded-xl bg-muted/20 border border-border/30">
@@ -330,23 +385,31 @@ export default function ConnectionWizard({
                     <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-1">Step 3: Credentials</h3>
                     <p className="text-xs text-muted-foreground mb-6">Provide access credentials to authorize the connection.</p>
                     <div className="grid grid-cols-1 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Username</Label>
-                        <Input 
-                          value={form.username}
-                          onChange={(e) => setForm(p => ({...p, username: e.target.value}))}
-                          className="h-10 bg-muted/20 border-border/50"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Password</Label>
-                        <Input 
-                          type="password"
-                          value={form.password}
-                          onChange={(e) => setForm(p => ({...p, password: e.target.value}))}
-                          className="h-10 bg-muted/20 border-border/50"
-                        />
-                      </div>
+                      {connectorTypes[form.type]?.schema?.properties?.username && (
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
+                            {connectorTypes[form.type]?.schema?.properties?.username?.title || "Username"}
+                          </Label>
+                          <Input 
+                            value={form.username}
+                            onChange={(e) => setForm(p => ({...p, username: e.target.value}))}
+                            className="h-10 bg-muted/20 border-border/50"
+                          />
+                        </div>
+                      )}
+                      {connectorTypes[form.type]?.schema?.properties?.password && (
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
+                            {connectorTypes[form.type]?.schema?.properties?.password?.title || "Password"}
+                          </Label>
+                          <Input 
+                            type="password"
+                            value={form.password}
+                            onChange={(e) => setForm(p => ({...p, password: e.target.value}))}
+                            className="h-10 bg-muted/20 border-border/50"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -379,8 +442,59 @@ export default function ConnectionWizard({
                     </Button>
                   )}
 
-                  {testResult?.error && (
-                    <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-[10px] text-destructive font-mono">
+                  {testResult?.diagnostics && (
+                    <div className="mt-6 w-full max-w-[320px] space-y-2">
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-muted/10 border border-border/30">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">DNS Resolution</span>
+                        <span className={cn(
+                          "text-[10px] font-mono",
+                          testResult.diagnostics.dns_resolution === "success" ? "text-success" : "text-destructive"
+                        )}>
+                          {testResult.diagnostics.dns_resolution}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-muted/10 border border-border/30">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Port Connectivity</span>
+                        <span className={cn(
+                          "text-[10px] font-mono",
+                          testResult.diagnostics.tcp_connection === "success" ? "text-success" : "text-destructive"
+                        )}>
+                          {testResult.diagnostics.tcp_connection}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-muted/10 border border-border/30">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Authentication</span>
+                        <span className={cn(
+                          "text-[10px] font-mono",
+                          testResult.diagnostics.authentication === "success" ? "text-success" : "text-destructive"
+                        )}>
+                          {testResult.diagnostics.authentication}
+                        </span>
+                      </div>
+                      {testResult.latency_ms > 0 && (
+                        <div className="text-center text-[10px] text-muted-foreground/60 italic">
+                          Response time: {testResult.latency_ms}ms
+                        </div>
+                      )}
+                      
+                      {!testResult.success && (
+                        <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20 space-y-2">
+                          <p className="text-[10px] font-bold text-primary flex items-center gap-1.5">
+                            <Zap className="w-3 h-3" /> Troubleshooting Recommendation:
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-relaxed">
+                            {testResult.diagnostics.dns_resolution !== "success" ? "Check the hostname or AWS/Azure VPC settings. Verify if the host is reachable from the AstraFlow cluster." :
+                             testResult.diagnostics.tcp_connection !== "success" ? `Confirm the database port (${form.port || (form.type === 'mysql' ? 3306 : 5432)}) is open and white-listed in your firewall.` :
+                             testResult.diagnostics.authentication !== "success" ? "Verify your credentials. For Cloud databases, ensure the user has sufficient permissions for remote access." :
+                             "The connection established but a specific permission check failed. Check your database user grants."}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {testResult?.error && !testResult?.diagnostics && (
+                    <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-[10px] text-destructive font-mono max-w-[280px]">
                       {testResult.error}
                     </div>
                   )}
@@ -482,26 +596,66 @@ export default function ConnectionWizard({
                   </div>
 
                   <div className="flex-1 overflow-y-auto min-h-[160px] border border-border/40 rounded-xl bg-card/10 backdrop-blur-sm p-4 space-y-2 thin-scrollbar">
-                    {filteredTables.map(table => (
-                      <div 
-                        key={table}
-                        onClick={() => toggleTable(table)}
-                        className={cn(
-                          "flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all border",
-                          form.selected_tables?.includes(table) 
-                            ? "bg-primary/10 border-primary/30 text-foreground shadow-sm" 
-                            : "hover:bg-muted/30 border-transparent text-muted-foreground"
-                        )}
-                      >
-                        <div className={cn(
-                          "w-4 h-4 rounded border flex items-center justify-center transition-all",
-                          form.selected_tables?.includes(table) ? "bg-primary border-primary scale-110" : "border-muted-foreground/30"
-                        )}>
-                          {form.selected_tables?.includes(table) && <CheckCircle2 className="w-3 h-3 text-primary-foreground" />}
+                    {filteredTables.map(table => {
+                      const name = typeof table === "string" ? table : table.name;
+                      const isSelected = form.selected_tables?.includes(name);
+                      const rec = typeof table !== "string" ? table.recommendation : null;
+                      
+                      return (
+                        <div 
+                          key={name}
+                          onClick={() => toggleTable(table)}
+                          className={cn(
+                            "group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border",
+                            isSelected 
+                              ? "bg-primary/10 border-primary/30 text-foreground shadow-sm" 
+                              : "hover:bg-muted/30 border-transparent text-muted-foreground"
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-5 h-5 rounded-lg border flex items-center justify-center transition-all",
+                              isSelected ? "bg-primary border-primary scale-110 shadow-lg shadow-primary/20" : "border-muted-foreground/30 bg-background/50"
+                            )}>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold font-mono tracking-tight">{name}</span>
+                              {rec && (
+                                <span className="text-[9px] text-muted-foreground/60 font-medium">
+                                  {rec.reason}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {rec && (
+                            <div className="flex items-center gap-2">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className={cn(
+                                      "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-current opacity-70 group-hover:opacity-100 transition-opacity",
+                                      rec.mode === 'cdc' ? "text-cyan-500" : 
+                                      rec.mode === 'incremental' ? "text-amber-500" : "text-muted-foreground"
+                                    )}>
+                                      {rec.mode.replace('_', ' ')}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className="text-xs">Recommended Sync Strategy</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              
+                              {table.primary_key && (
+                                <Activity className="w-3 h-3 text-success/50" />
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <span className="text-xs font-bold font-mono">{table}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {filteredTables.length === 0 && (
                       <div className="flex flex-col items-center justify-center h-full text-center p-8 opacity-40">
                          <Box className="w-8 h-8 mb-2" />

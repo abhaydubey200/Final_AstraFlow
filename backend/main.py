@@ -52,7 +52,6 @@ limiter = Limiter(key_func=get_remote_address)
 # Disable redirect_slashes to prevent 307 redirects from bypassing RBAC middleware on missing auth.
 app = FastAPI(title="AstraFlow API", version="1.0.0", redirect_slashes=True)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 from fastapi.responses import JSONResponse
 import logging
@@ -70,8 +69,8 @@ async def global_exception_handler(request: Request, exc: Exception):
     
     # Determine origin for CORS header
     origin = request.headers.get("origin", "http://localhost:8080")
-    allowed = ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080", "http://localhost:8081", "http://127.0.0.1:8080", "http://127.0.0.1:5173"]
-    cors_origin = origin if origin in allowed else "http://localhost:8080"
+    allowed = ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080", "http://localhost:8081", "http://localhost:8082", "http://127.0.0.1:8080", "http://127.0.0.1:5173", "http://127.0.0.1:8082"]
+    cors_origin = origin if origin in allowed else "http://localhost:8082"
 
     return JSONResponse(
         status_code=500,
@@ -92,6 +91,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     await db_manager.connect()
+    from core.snowflake_connector import SnowflakeConnector
+    print(f"STARTUP DEBUG: SnowflakeConnector abstract methods: {SnowflakeConnector.__abstractmethods__}")
     app.state.db_pool = db_manager.pool
     self_healing_manager.pool = db_manager.pool
     
@@ -137,12 +138,18 @@ ROLE_PERMISSIONS = {
 
 # Security: Restrict CORS to known origins only
 ALLOWED_ORIGINS = [
-    "http://localhost:5173", 
-    "http://localhost:3000", 
-    "http://localhost:8080", 
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8080",
     "http://localhost:8081",
+    "http://localhost:8082",
+    "http://localhost:8083",
+    "http://localhost:8084",
     "http://127.0.0.1:8080",
-    "http://127.0.0.1:5173"
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8082",
+    "http://127.0.0.1:8083",
+    "http://127.0.0.1:8084",
 ]
 
 app.add_middleware(AuditMiddleware)
@@ -173,4 +180,4 @@ async def health():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8088, reload=True)
+    uvicorn.run("main:app", host="::", port=8081, reload=True)

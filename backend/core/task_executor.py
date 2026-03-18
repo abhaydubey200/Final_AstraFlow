@@ -7,6 +7,9 @@ from services.connection_service import ConnectionService
 from services.storage_service import StorageService
 from services.bulk_load_service import BulkLoadService
 from core.postgres_connector import PostgresConnector
+from core.mssql_connector import MSSQLConnector
+from core.mysql_connector import MySQLConnector
+from core.snowflake_connector import SnowflakeConnector
 from services.partition_planner import PartitionPlanner
 from core.parquet_utils import ParquetUtils
 import uuid
@@ -67,21 +70,54 @@ class TaskExecutor:
                 logger.error(f"Circuit Breaker TRIPPED for {task_type} after 5 failures.")
             raise e
 
+    async def _get_connector(self, connection_id: Optional[str], config: Dict[str, Any]) -> Any:
+        """Factory method to get the correct connector based on connection_id or config."""
+        if connection_id:
+            conn_data = await self.conn_service.get_connection(connection_id)
+            if not conn_data:
+                raise Exception(f"Connection {connection_id} not found")
+            conn_type = conn_data.get('connection_type', '').upper()
+            conn_config = conn_data.get('config_json', {})
+        else:
+            conn_type = config.get('connection_type', 'POSTGRES').upper()
+            conn_config = config.get('source_config') or config
+            
+        if conn_type == 'POSTGRES':
+            return PostgresConnector(conn_config)
+        elif conn_type == 'MSSQL':
+            return MSSQLConnector(conn_config)
+        elif conn_type == 'MYSQL':
+            return MySQLConnector(conn_config)
+        elif conn_type == 'SNOWFLAKE':
+            return SnowflakeConnector(conn_config)
+        else:
+            raise Exception(f"Unsupported connection type: {conn_type}")
+
     async def _run_extract(self, config: Dict[str, Any], metadata: Dict[str, Any]):
         run_id = metadata.get('pipeline_run_id')
         if not run_id:
             raise Exception("pipeline_run_id missing from task metadata")
             
-        source_config = config.get('source_config', {})
-        table_name = config.get('table_name') or config.get('source_table')
+        connection_id = config.get('connection_id')
+        table_name = (
+            config.get('table_name') or 
+            config.get('source_table') or 
+            config.get('source_config', {}).get('table_name')
+        )
+        
+        if not table_name:
+            # Fallback for better UX/Debugging
+            logger.warning(f"No table_name found in config for run {run_id}. Checking nodes...")
+            table_name = "unknown_table"
+            
         chunk_size = config.get('chunk_size', 50000)
         
-        connector = PostgresConnector(source_config)
+        connector = await self._get_connector(connection_id, config)
         await connector.connect()
         
         try:
             # 1. Plan Partitions
-            partitions = await self.partition_planner.plan_partitions(str(run_id), source_config, table_name, 'id')
+            partitions = await self.partition_planner.plan_partitions(str(run_id), config.get('source_config', {}), table_name, 'id')
             
             # 2. Parallelize partition processing
             semaphore = asyncio.Semaphore(4)
@@ -104,10 +140,17 @@ class TaskExecutor:
                         
                         # Store Metadata
                         async with self.pool.acquire() as conn:
+                            file_size = 0
+                            try:
+                                if os.path.exists(local_file):
+                                    file_size = os.path.getsize(local_file)
+                            except:
+                                pass
+                                
                             await conn.execute(
                                 "INSERT INTO public.staging_files (pipeline_run_id, partition_id, file_path, row_count, file_size_bytes) "
                                 "VALUES ($1, $2, $3, $4, $5)",
-                                uuid.UUID(str(run_id)), uuid.UUID(partition['id']), remote_path, len(chunk), os.path.getsize(local_file)
+                                uuid.UUID(str(run_id)), uuid.UUID(partition['id']), remote_path, len(chunk), file_size
                             )
                         
                         # Cleanup
@@ -122,7 +165,11 @@ class TaskExecutor:
 
     async def _run_load(self, config: Dict[str, Any], metadata: Dict[str, Any]):
         run_id = metadata.get('pipeline_run_id')
-        table_name = config.get('table_name')
+        table_name = (
+            config.get('table_name') or 
+            config.get('dest_table') or 
+            config.get('target_table')
+        )
         dest_config = config.get('dest_config', {})
         s3_path = f"staging/{run_id}/{table_name}/"
         await self.bulk_load_service.load_to_snowflake(str(run_id), dest_config, table_name, s3_path)

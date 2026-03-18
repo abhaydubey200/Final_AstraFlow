@@ -1,0 +1,44 @@
+# AstraFlow – Dynamic Connection Page PRD
+
+## 🎯 Objective
+
+Build a universal, dynamic connection page that allows users to connect any data source (databases, warehouses, APIs) with a guided, error-free experience.
+
+## 🚨 Problem Statement
+
+Current connection systems:
+
+* Are static (hardcoded forms)
+* Do not scale for multiple databases
+* Lack real-time validation and error guidance
+
+## 💡 Solution
+
+A schema-driven, dynamic UI that:
+
+* Adapts per database
+* Provides real-time testing
+* Includes required + optional configurations
+* Supports auto-detection and error handling
+
+## 👤 Target Users
+
+* Data Engineers
+* Data Analysts
+* Backend Engineers
+* BI Teams
+
+## 🧭 User Flow
+
+1. Select Source
+2. Configure Connection
+3. Test Connection
+4. Select Data
+5. Configure Sync
+6. Review & Create
+
+## 📊 Success Metrics
+
+* Connection success rate > 95%
+* Error reduction by 60%
+* Time to create connection < 2 min

@@ -55,6 +55,9 @@ class PipelineRunResponse(BaseModel):
     environment: str
     start_time: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    end_time: Optional[datetime] = None # Alias for finished_at to match frontend
+    rows_processed: int = 0
+    error_message: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -5,6 +5,31 @@ from core.base_connector import BaseConnector
 class MySQLConnector(BaseConnector):
     """MySQL connector using pooled connections."""
 
+    @classmethod
+    def get_config_schema(cls) -> Dict[str, Any]:
+        return {
+            "title": "MySQL Connection",
+            "type": "object",
+            "required": ["host", "user", "database"],
+            "properties": {
+                "host": {"title": "Host", "type": "string", "placeholder": "localhost"},
+                "port": {"title": "Port", "type": "integer", "default": 3306},
+                "user": {"title": "Username", "type": "string"},
+                "password": {"title": "Password", "type": "string", "format": "password"},
+                "database": {"title": "Database", "type": "string"}
+            }
+        }
+
+    @classmethod
+    def get_capabilities(cls) -> Dict[str, Any]:
+        return {
+            "supports_cdc": True,
+            "supports_incremental": True,
+            "supports_parallel_reads": True,
+            "supports_transactions": True,
+            "max_connections": 100
+        }
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.pool: Optional[MySQLConnectionPool] = None
@@ -59,6 +84,58 @@ class MySQLConnector(BaseConnector):
             if conn:
                 conn.close()
 
+    async def diagnose(self) -> Dict[str, Any]:
+        """Perform deep diagnostics for MySQL."""
+        import socket
+        import time
+        
+        report = {
+            "dns_resolution": "pending",
+            "tcp_connection": "pending",
+            "authentication": "pending",
+            "permission_check": "pending",
+            "latency_ms": 0
+        }
+        
+        # 1. DNS Resolution
+        try:
+            host = self.config.get("host")
+            socket.gethostbyname(host)
+            report["dns_resolution"] = "success"
+        except Exception as e:
+            report["dns_resolution"] = f"failed: {str(e)}"
+            return report
+            
+        # 2. TCP Connection
+        start_time = time.time()
+        try:
+            port = int(self.config.get("port", 3306))
+            s = socket.create_connection((host, port), timeout=5)
+            s.close()
+            report["tcp_connection"] = "success"
+        except Exception as e:
+            report["tcp_connection"] = f"failed: {str(e)}"
+            return report
+            
+        # 3. Authentication & Permission
+        try:
+            success = await self.connect()
+            if success:
+                report["authentication"] = "success"
+                # Check permissions
+                try:
+                    await self.discover_schema()
+                    report["permission_check"] = "success"
+                except Exception as e:
+                    report["permission_check"] = f"restricted: {str(e)}"
+            else:
+                report["authentication"] = "failed: Credentials rejected"
+        except Exception as e:
+            report["authentication"] = f"failed: {str(e)}"
+            
+        report["latency_ms"] = int((time.time() - start_time) * 1000)
+        return report
+
     async def disconnect(self):
         # MySQLConnectionPool doesn't have a specific 'close all' method in basic API,
         # but we can set it to None.
@@ -99,7 +176,8 @@ class MySQLConnector(BaseConnector):
                     TABLE_NAME as table_name,
                     COLUMN_NAME as column_name,
                     DATA_TYPE as data_type,
-                    IS_NULLABLE as is_nullable
+                    IS_NULLABLE as is_nullable,
+                    COLUMN_KEY as column_key
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
                 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
@@ -107,19 +185,37 @@ class MySQLConnector(BaseConnector):
 
             tables: Dict[str, Any] = {}
             for row in cursor.fetchall():
-                schema_name, table_name, column_name, data_type, is_nullable = row
+                schema_name, table_name, column_name, data_type, is_nullable, column_key = row
                 key = f"{schema_name}.{table_name}"
                 if key not in tables:
                     tables[key] = {
                         "schema": schema_name,
                         "name": table_name,
-                        "columns": []
+                        "columns": [],
+                        "primary_key": None,
+                        "recommended_cursor": None
                     }
+                
+                is_pk = column_key == 'PRI'
                 tables[key]["columns"].append({
                     "name": column_name,
                     "type": data_type,
-                    "nullable": is_nullable == "YES"
+                    "nullable": is_nullable == "YES",
+                    "is_primary_key": is_pk
                 })
+
+                if is_pk:
+                    tables[key]["primary_key"] = column_name
+
+                # Timestamp detection heuristic for recommended cursor
+                ts_keywords = ['updated', 'modified', 'created', 'timestamp', 'time', 'date', 'at']
+                is_ts_type = any(t in data_type.lower() for t in ['timestamp', 'datetime', 'date'])
+                is_ts_name = any(k in column_name.lower() for k in ts_keywords)
+                
+                if is_ts_type or is_ts_name:
+                    if not tables[key]["recommended_cursor"] or 'updated' in column_name.lower() or 'modified' in column_name.lower():
+                        tables[key]["recommended_cursor"] = column_name
+
             return list(tables.values())
         except Exception as e:
             print(f"MySQL schema discovery error: {e}")

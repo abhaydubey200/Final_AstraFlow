@@ -2,8 +2,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, List
 from services.connection_service import ConnectionService
 from api.dependencies import get_connection_service
+from core.connector_registry import ConnectorRegistry
 
 router = APIRouter(prefix="/connections", tags=["connections"])
+
+@router.get("/types")
+async def get_connector_types():
+    """Return all supported connector types and their configuration schemas."""
+    return ConnectorRegistry.get_all_schemas()
 
 @router.get("")
 async def list_connections(
@@ -42,6 +48,17 @@ async def create_connection(
         return await service.create_connection(config)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create connection: {str(e)}")
+
+@router.put("/{connection_id}")
+async def update_connection(
+    connection_id: str,
+    config: Dict[str, Any],
+    service: ConnectionService = Depends(get_connection_service)
+):
+    try:
+        return await service.update_connection(connection_id, config)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update connection: {str(e)}")
 
 
 @router.post("/test")
@@ -97,3 +114,10 @@ async def check_connection_health(
     
     conn_data["id"] = connection_id
     return await service.test_connection(conn_data)
+
+@router.post("/preview-data")
+async def preview_data(
+    config: Dict[str, Any],
+    service: ConnectionService = Depends(get_connection_service)
+):
+    return await service.preview_data(config)

@@ -116,11 +116,33 @@ class WorkerService:
         print(f"Worker processing job {job_id} [Stage: {stage}] for Pipeline {pipeline_id}")
         
         try:
-            # Stabilization: Global Mock Execution Bypass
+            # ----------------------------------------------------------------
+            # MOCK MODE: Simulate all stages inline without real DB connections
+            # ----------------------------------------------------------------
             if os.getenv("USE_MOCK_DB") == "true":
-                print(f"MOCK_WORKER: Executing real logic for stage {stage} [Run: {run_id}] in mock mode")
-                # We allow it to continue to the actual 'elif stage == ...' blocks below
-            
+                print(f"MOCK_WORKER: Simulating stage '{stage}' for Run {run_id}")
+                await asyncio.sleep(0.3)  # Simulate I/O work
+
+                # Mark this job complete
+                await self.update_job_status(str(job_id), "completed")
+
+                # Advance to next stage or finalize run
+                next_stages = {'extract': 'transform', 'transform': 'validate', 'validate': 'load'}
+                next_stage = next_stages.get(stage)
+                if next_stage:
+                    await self.enqueue_job(str(pipeline_id), str(run_id), next_stage, payload)
+                    print(f"MOCK_WORKER: Enqueued next stage '{next_stage}' for Run {run_id}")
+                else:
+                    # Final stage complete — mark run as completed
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE public.pipeline_runs SET status = 'completed', finished_at = NOW() WHERE id = $1",
+                            run_id
+                        )
+                    print(f"MOCK_WORKER: Run {run_id} completed successfully!")
+                print(f"MOCK_WORKER: Job {job_id} done.")
+                return  # Exit early — no real DB work needed
+
             # Phase 2: Staging Extraction Flow
             if stage == 'extract':
                 from core.postgres_connector import PostgresConnector
@@ -251,7 +273,10 @@ class WorkerService:
         print(f"Worker executing Task Run {run_id} [Type: {task_type}]")
         
         try:
-            await self.task_executor.execute(task_type, config, {"pipeline_run_id": task_run['pipeline_run_id']})
+            await self.task_executor.execute(task_type, config, {
+                "pipeline_run_id": task_run['pipeline_run_id'],
+                "task_id": task_run['task_id']
+            })
             await self.update_task_status(str(run_id), "completed")
         except Exception as e:
             await self._handle_task_failure(task_run, str(e))

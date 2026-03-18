@@ -45,6 +45,7 @@ export interface TestConnectionResult {
   server_version?: string;
   error?: string;
   tables_count?: number;
+  diagnostics?: Record<string, string | number>;
 }
 
 export interface SchemaTable {
@@ -151,9 +152,26 @@ export function useCapabilities() {
 }
 
 export function useResourceDiscovery() {
-  return useMutation<{ results: string[] }, Error, ResourceDiscoveryParams>({
+  return useMutation<{ results: (string | any)[] }, Error, ResourceDiscoveryParams>({
     mutationFn: async (params) => {
-      return apiClient.post<{ results: string[] }>("/connections/discover", params);
+      return apiClient.post<{ results: (string | any)[] }>("/connections/discover", params);
+    },
+  });
+}
+
+export function usePreviewData() {
+  return useMutation<{ data: any[]; columns: string[] }, Error, { type: string; table_name: string; schema_name?: string; [key: string]: any }>({
+    mutationFn: async (params) => {
+      return apiClient.post<{ data: any[]; columns: string[] }>("/connections/preview-data", params);
+    },
+  });
+}
+
+export function useConnectorTypes() {
+  return useQuery<Record<string, { schema: any; capabilities: any }>>({
+    queryKey: ["connector_types"],
+    queryFn: async () => {
+      return apiClient.get<Record<string, { schema: any; capabilities: any }>>("/connections/types");
     },
   });
 }

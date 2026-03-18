@@ -7,13 +7,11 @@ import asyncio
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
-from core.postgres_connector import PostgresConnector
-from core.snowflake_connector import SnowflakeConnector
-from core.mssql_connector import MSSQLConnector
-from core.mysql_connector import MySQLConnector
+from core.connector_registry import ConnectorRegistry
 from services.metadata_service import MetadataService
 from services.secret_service import SecretService
 from services.capability_service import CapabilityService
+from services.ai_service import AIService
 
 class ConnectionService:
     def __init__(self, pool: asyncpg.Pool):
@@ -21,6 +19,7 @@ class ConnectionService:
         self.metadata_service = MetadataService(pool)
         self.secret_service = SecretService(pool)
         self.capability_service = CapabilityService(pool)
+        self.ai_service = AIService()
         self._pool_cache = {} 
 
     async def list_connections(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
@@ -69,7 +68,12 @@ class ConnectionService:
         async with self.pool.acquire() as conn:
             port = config.get("port")
             if not port:
-                port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
+                try:
+                    connector_class = ConnectorRegistry.get_connector_class(config.get("type"))
+                    schema = connector_class.get_config_schema()
+                    port = schema.get("properties", {}).get("port", {}).get("default", 0)
+                except Exception:
+                    port = 0
             
             conn_id = await conn.fetchval(
                 "INSERT INTO connections (name, type, host, port, database_name, username, ssl_enabled, security_level) "
@@ -87,8 +91,62 @@ class ConnectionService:
                 
             # Initial capability detection
             await self.capability_service.detect_capabilities({**config, "connection_id": str(conn_id)})
+            
+            # Persist Sync Configs
+            selected_tables = config.get("selected_tables", [])
+            sync_configs = config.get("sync_configs", {})
+            
+            for table_meta in selected_tables:
+                table_name = table_meta.get("name") if isinstance(table_meta, dict) else table_meta
+                schema_name = table_meta.get("schema", "public") if isinstance(table_meta, dict) else "public"
+                
+                table_sync = sync_configs.get(table_name, {})
+                
+                await conn.execute("""
+                    INSERT INTO sync_configs (connection_id, table_name, schema_name, sync_mode, cursor_field, primary_key, selected_columns)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, 
+                conn_id, table_name, schema_name,
+                table_sync.get("mode", "full_refresh"),
+                table_sync.get("cursorField"),
+                table_sync.get("primaryKey"),
+                json.dumps(table_sync.get("columns", []))
+                )
                 
             return {"id": str(conn_id), "status": "created"}
+            
+    async def update_connection(self, connection_id: str, config: Dict[str, Any]):
+        async with self.pool.acquire() as conn:
+            p_uuid = uuid.UUID(connection_id)
+            port = config.get("port")
+            if not port:
+                port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
+            
+            await conn.execute("""
+                UPDATE connections 
+                SET name = $1, host = $2, port = $3, database_name = $4, username = $5, ssl_enabled = $6, security_level = $7
+                WHERE id = $8
+            """, 
+            config.get("name"), config.get("host"), port,
+            config.get("database_name") or config.get("database"), 
+            config.get("username") or config.get("user"),
+            config.get("ssl_enabled", False),
+            config.get("security_level", "standard"),
+            p_uuid)
+            
+            # Update password if provided
+            if config.get("password"):
+                await self.secret_service.store_secret(connection_id, 'password', config.get("password"))
+            
+            # Invalidate cached pool
+            if connection_id in self._pool_cache:
+                try:
+                    old_pool = self._pool_cache.pop(connection_id)
+                    await old_pool.close()
+                except Exception:
+                    pass
+                    
+            return {"id": connection_id, "status": "updated"}
 
     async def get_secrets(self, connection_id: str) -> Dict[str, Any]:
         """Fetches secrets via SecretService."""
@@ -96,17 +154,14 @@ class ConnectionService:
         return {"password": password} if password else {}
 
     async def test_connection(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        connector_type = config.get("type") or config.get("connector_type")
+        """Test a connection and return a detailed diagnostic report."""
+        connector_type = config.get("type", "postgresql")
         
-        # --- Mock Bypass ---
-        if os.getenv("USE_MOCK_DB") == "true":
-            print(f"DEBUG: Mock test for {connector_type}")
-            return {"success": True, "latency_ms": 12, "message": "Mock connection successful"}
-
-        # Resolve password if connection_id provided
+        # Resolve password if connection_id provided (for editing existing connections)
         password = config.get("password")
-        if not password and config.get("id"):
-            password = await self.secret_service.get_secret(config["id"], "password")
+        connection_id = config.get("id") or config.get("connection_id")
+        if not password and connection_id:
+            password = await self.secret_service.get_secret(connection_id, "password")
 
         normalized_config = {
             "host": config.get("host"),
@@ -117,41 +172,48 @@ class ConnectionService:
             "username": config.get("username") or config.get("user"),
             "password": password,
             "ssl_enabled": config.get("ssl_enabled", False),
-            "ssl": config.get("ssl_enabled", False)
+            "ssl": config.get("ssl_enabled", False),
+            "warehouse": config.get("warehouse_name") or config.get("warehouse"),
         }
 
-        connector = None
-        if connector_type == "postgresql":
-            connector = PostgresConnector(normalized_config)
-        elif connector_type == "snowflake":
-            connector = SnowflakeConnector(normalized_config)
-        elif connector_type in ("mssql", "sqlserver"):
-            connector = MSSQLConnector(normalized_config)
-        elif connector_type == "mysql":
-            connector = MySQLConnector(normalized_config)
+        try:
+            connector_class = ConnectorRegistry.get_connector_class(connector_type)
+            connector = connector_class(normalized_config)
             
-        if connector:
-            try:
-                start_time = time.time()
-                # Enforce a 10s timeout for the entire sequence
-                result_data = await asyncio.wait_for(
-                    self._run_connector_test(connector, start_time), 
-                    timeout=10.0
-                )
-                
-                if result_data.get("success"):
-                    latency = result_data.get("latency", 0)
-                    if config.get("id"):
-                        await self._update_performance(config["id"], latency)
-                    return {"success": True, "latency_ms": latency, "message": "Connection successful"}
-                return {"success": False, "error": result_data.get("error") or "Connection failed"}
-                
-            except asyncio.TimeoutError:
-                return {"success": False, "error": "Connection timed out after 10 seconds"}
-            except Exception as e:
-                return {"success": False, "error": str(e)}
-        
-        return {"success": False, "error": f"Unsupported connector type: {connector_type}"}
+            # Perform deep diagnostics
+            report = await connector.diagnose()
+            
+            # Classification: Success requires basic connectivity and auth
+            success = (report.get("dns_resolution") == "success" and 
+                       report.get("tcp_connection") == "success" and 
+                       report.get("authentication") == "success")
+            
+            if success and connection_id:
+                await self._update_performance(connection_id, report.get("latency_ms", 0))
+            
+            if not success:
+               ai_suggestion = await self.ai_service.explain_failure(next((v for k, v in report.items() if isinstance(v, str) and "failed" in v), str(report)))
+               report["ai_suggestion"] = ai_suggestion
+
+            return {
+                "success": success,
+                "latency_ms": report.get("latency_ms", 0),
+                "message": "Connection verified" if success else "Diagnostic failure identified",
+                "diagnostics": report,
+                "error": next((v for k, v in report.items() if isinstance(v, str) and "failed" in v), None),
+                "suggestion": report.get("ai_suggestion", {}).get("fix")
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "latency_ms": 0,
+                "message": f"Critical error: {str(e)}",
+                "error": str(e)
+            }
+        finally:
+            if 'connector' in locals() and connector:
+                try: await connector.disconnect()
+                except: pass
 
     async def _run_connector_test(self, connector: BaseConnector, start_time: float) -> Dict[str, Any]:
         """Internal helper to run connection + health check."""
@@ -180,12 +242,36 @@ class ConnectionService:
         connection_id = config.get("connection_id") or config.get("id")
         
         # --- Mock Bypass ---
-        if os.getenv("USE_MOCK_DB") == "true":
+        if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
             print(f"DEBUG: Mock schema discovery for {connector_type}")
             tables_data = [
-                {"schema": "public", "name": "users", "columns": [{"name": "id", "type": "uuid", "nullable": False}, {"name": "email", "type": "string", "nullable": False}]},
-                {"schema": "public", "name": "orders", "columns": [{"name": "id", "type": "uuid", "nullable": False}, {"name": "amount", "type": "decimal", "nullable": True}]}
+                {
+                    "schema": "public", 
+                    "name": "users", 
+                    "primary_key": "id",
+                    "recommended_cursor": "updated_at",
+                    "columns": [
+                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True}, 
+                        {"name": "email", "type": "string", "nullable": False},
+                        {"name": "updated_at", "type": "timestamp", "nullable": False}
+                    ]
+                },
+                {
+                    "schema": "public", 
+                    "name": "orders", 
+                    "primary_key": "id",
+                    "columns": [
+                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True}, 
+                        {"name": "amount", "type": "decimal", "nullable": True}
+                    ]
+                }
             ]
+            # Apply recommendation logic to mock data too
+            for table in tables_data:
+                table["recommendation"] = {
+                    "mode": "cdc" if table.get("primary_key") else "incremental",
+                    "reason": "Primary key identified" if table.get("primary_key") else "No PK; falling back to incremental"
+                }
             return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
 
         # Check cache first
@@ -211,34 +297,45 @@ class ConnectionService:
             "ssl": config.get("ssl_enabled", False)
         }
         
-        connector = None
-        if connector_type == "postgresql":
-            connector = PostgresConnector(normalized_config)
-        elif connector_type == "snowflake":
-            connector = SnowflakeConnector(normalized_config)
-        elif connector_type in ("mssql", "sqlserver"):
-            connector = MSSQLConnector(normalized_config)
-        elif connector_type == "mysql":
-            connector = MySQLConnector(normalized_config)
+        try:
+            connector_class = ConnectorRegistry.get_connector_class(connector_type)
+            connector = connector_class(normalized_config)
             
-        if connector:
-            try:
-                tables_data = await asyncio.wait_for(
-                    self._run_schema_discovery(connector), 
-                    timeout=30.0
-                )
+            tables_data = await asyncio.wait_for(
+                self._run_schema_discovery(connector), 
+                timeout=30.0
+            )
+
+            # --- Intelligent Recommendation ---
+            capabilities = connector.get_capabilities()
+            resolved_tables = tables_data or []
+            for table in resolved_tables:
+                rec_mode = "full_refresh"
+                reason = "No primary key or reliable cursor found"
                 
-                if tables_data is not None:
-                    if connection_id:
-                        await self.metadata_service.save_schema(connection_id, tables_data)
-                    return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
-                return {"tables": [], "supported": False, "message": "Could not connect to service"}
-            except asyncio.TimeoutError:
-                return {"tables": [], "supported": False, "message": "Schema discovery timed out after 30 seconds"}
-            except Exception as e:
-                return {"tables": [], "supported": False, "message": f"Discovery error: {str(e)}"}
+                if capabilities.get("supports_cdc") and table.get("primary_key"):
+                    rec_mode = "cdc"
+                    reason = f"Highly efficient; Primary key '{table['primary_key']}' identified"
+                elif table.get("recommended_cursor"):
+                    rec_mode = "incremental"
+                    reason = f"Incremental possible via cursor '{table['recommended_cursor']}'"
                 
-        return {"tables": [], "supported": False, "message": "Connector not supported for discovery"}
+                table["recommendation"] = {
+                    "mode": rec_mode,
+                    "reason": reason
+                }
+            
+            if tables_data is not None:
+                if connection_id:
+                    await self.metadata_service.save_schema(str(connection_id), tables_data)
+                return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
+            return {"tables": [], "supported": False, "message": "Could not connect to service"}
+        except asyncio.TimeoutError:
+            return {"tables": [], "supported": False, "message": "Schema discovery timed out after 30 seconds"}
+        except ValueError as e:
+            return {"tables": [], "supported": False, "message": str(e)}
+        except Exception as e:
+            return {"tables": [], "supported": False, "message": f"Discovery error: {str(e)}"}
 
     async def _run_schema_discovery(self, connector: BaseConnector) -> Optional[List[Dict[str, Any]]]:
         """Internal helper for schema discovery."""
@@ -256,7 +353,7 @@ class ConnectionService:
         target = config.get("target", "databases")
         
         # --- Mock Bypass for Session Persistence and Demo Stability ---
-        if os.getenv("USE_MOCK_DB") == "true":
+        if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
             print(f"DEBUG: Mock discovery for {connector_type} target {target}")
             if target == "warehouses":
                 return {"results": ["COMPUTE_WH", "DEMO_WH", "ANALYTICS_WH"]}
@@ -271,7 +368,40 @@ class ConnectionService:
                     return {"results": ["PUBLIC", "INFORMATION_SCHEMA", "STAGING"]}
                 return {"results": ["public", "internal"]}
             if target == "tables":
-                return {"results": ["users", "orders", "transactions", "inventory", "customer_feedback"]}
+                # Mock tables with recommendations for Step 7
+                tables_data = [
+                    {
+                        "schema": "public", 
+                        "name": "users", 
+                        "primary_key": "id",
+                        "recommended_cursor": "updated_at",
+                        "columns": [
+                            {"name": "id", "type": "INTEGER", "primary_key": True},
+                            {"name": "name", "type": "VARCHAR"},
+                            {"name": "email", "type": "VARCHAR"},
+                            {"name": "updated_at", "type": "TIMESTAMP"},
+                            {"name": "created_at", "type": "TIMESTAMP"}
+                        ]
+                    },
+                    {
+                        "schema": "public", 
+                        "name": "orders", 
+                        "primary_key": "id",
+                        "columns": [
+                            {"name": "id", "type": "INTEGER", "primary_key": True},
+                            {"name": "user_id", "type": "INTEGER"},
+                            {"name": "amount", "type": "DECIMAL"},
+                            {"name": "status", "type": "VARCHAR"},
+                            {"name": "order_date", "type": "TIMESTAMP"}
+                        ]
+                    }
+                ]
+                for table in tables_data:
+                    table["recommendation"] = {
+                        "mode": "cdc" if table.get("primary_key") else "incremental",
+                        "reason": "Primary key identified" if table.get("primary_key") else "No PK; falling back to incremental"
+                    }
+                return {"results": tables_data}
             return {"results": []}
 
         # Normalize config
@@ -300,11 +430,14 @@ class ConnectionService:
         connector = None
 
         try:
-            if connector_type == "postgresql":
-                if not normalized_config["database"]:
-                    normalized_config["database"] = "postgres"
-                connector = PostgresConnector(normalized_config)
-                if await connector.connect():
+            connector_class = ConnectorRegistry.get_connector_class(connector_type)
+            # Snowflake and others might need specialized logic for these targets,
+            # but for Phase 1 we'll keep the specialized logic here but use the registry for class instantiation.
+            # We will move this logic into connectors in Phase 9.
+            connector = connector_class(normalized_config)
+            
+            if await connector.connect():
+                if connector_type == "postgresql":
                     async with connector.pool.acquire() as conn:
                         if target == "databases":
                             rows = await conn.fetch("SELECT datname FROM pg_database WHERE datistemplate = false")
@@ -317,10 +450,8 @@ class ConnectionService:
                             rows = await conn.fetch("SELECT table_name FROM information_schema.tables WHERE table_schema = $1", schema)
                             results = [r['table_name'] for r in rows]
 
-            elif connector_type == "mysql":
-                connector = MySQLConnector(normalized_config)
-                if await connector.connect():
-                    cursor = connector.conn.cursor()
+                elif connector_type == "mysql":
+                    cursor = connector.pool.get_connection().cursor()
                     if target == "databases":
                         cursor.execute("SHOW DATABASES")
                         all_dbs = [r[0] for r in cursor.fetchall()]
@@ -339,9 +470,7 @@ class ConnectionService:
                             results = [r[0] for r in cursor.fetchall()]
                     cursor.close()
 
-            elif connector_type in ("mssql", "sqlserver"):
-                connector = MSSQLConnector(normalized_config)
-                if await connector.connect():
+                elif connector_type in ("mssql", "sqlserver"):
                     cursor = connector.conn.cursor()
                     if target == "databases":
                         cursor.execute("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')")
@@ -355,9 +484,7 @@ class ConnectionService:
                         results = [r[0] for r in cursor.fetchall()]
                     cursor.close()
 
-            elif connector_type == "snowflake":
-                connector = SnowflakeConnector(normalized_config)
-                if await connector.connect():
+                elif connector_type == "snowflake":
                     cursor = connector.conn.cursor()
                     if target == "warehouses":
                         cursor.execute("SHOW WAREHOUSES")
@@ -378,8 +505,9 @@ class ConnectionService:
                             results = [r[1] for r in cursor.fetchall()]
                     cursor.close()
 
-            if connector:
                 await connector.disconnect()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         except Exception as e:
             print(f"Discovery error for {connector_type} target {target}: {e}")
@@ -389,3 +517,21 @@ class ConnectionService:
             raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
             
         return {"results": sorted(results) if results else []}
+
+    async def preview_data(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetch a sample of data from a specific table."""
+        connector_type = (config.get("type") or "").lower()
+        table_name = config.get("table_name")
+        schema_name = config.get("schema_name") or "public"
+        
+        if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
+            sample_data = [
+                {"id": 1, "name": "System Admin", "email": "admin@astraflow.ai", "role": "superuser"},
+                {"id": 2, "name": "Data Enigneer", "email": "engineer@astraflow.ai", "role": "staff"},
+                {"id": 3, "name": "Growth Analyst", "email": "analyst@astraflow.ai", "role": "user"},
+            ]
+            return {"data": sample_data, "columns": ["id", "name", "email", "role"]}
+
+        # Real implementation would call connector.read_records with a limit
+        # This will be fully implemented in Phase 5: Connector Engine
+        return {"data": [], "columns": [], "message": "Preview not available in current environment"}

@@ -25,7 +25,13 @@ import DocsPage from "@/pages/DocsPage";
 import CostDashboard from "@/pages/CostDashboard";
 import Marketplace from "@/pages/Marketplace";
 import AuditLogs from "@/pages/AuditLogs";
+import SourceSelectionPage from "@/pages/connection-wizard/SourceSelectionPage";
+import ConnectionConfigPage from "@/pages/connection-wizard/ConnectionConfigPage";
+import SchemaSelectionPage from "@/pages/connection-wizard/SchemaSelectionPage";
+import SyncConfigPage from "@/pages/connection-wizard/SyncConfigPage";
+import ReviewPage from "@/pages/connection-wizard/ReviewPage";
 import NotFound from "./pages/NotFound";
+
 
 const queryClient = new QueryClient();
 
@@ -53,6 +59,12 @@ const App = () => (
                         <Route path="/pipelines/:id" element={<PipelineDetail />} />
                         <Route path="/pipelines/:id/edit" element={<PipelineBuilderPage />} />
                         <Route path="/connections" element={<Connections />} />
+                        <Route path="/connections/new" element={<SourceSelectionPage />} />
+                        <Route path="/connections/new/config" element={<ConnectionConfigPage />} />
+                        <Route path="/connections/new/schema" element={<SchemaSelectionPage />} />
+                        <Route path="/connections/new/sync" element={<SyncConfigPage />} />
+                        <Route path="/connections/new/review" element={<ReviewPage />} />
+
                         <Route path="/logs" element={<ExecutionLogs />} />
                         <Route path="/monitoring" element={<Monitoring />} />
                         <Route path="/catalog" element={<Catalog />} />

@@ -1,26 +1,49 @@
 import asyncpg
+import socket
+import time
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
 
 class PostgresConnector(BaseConnector):
+    @classmethod
+    def get_config_schema(cls) -> Dict[str, Any]:
+        return {
+            "title": "PostgreSQL Connection",
+            "type": "object",
+            "required": ["host", "user", "database"],
+            "properties": {
+                "host": {"title": "Host", "type": "string", "placeholder": "localhost"},
+                "port": {"title": "Port", "type": "integer", "default": 5432},
+                "user": {"title": "Username", "type": "string"},
+                "password": {"title": "Password", "type": "string", "format": "password"},
+                "database": {"title": "Database", "type": "string"},
+                "ssl": {"title": "SSL Enabled", "type": "boolean", "default": False}
+            }
+        }
+
+    @classmethod
+    def get_capabilities(cls) -> Dict[str, Any]:
+        return {
+            "supports_cdc": True,
+            "supports_incremental": True,
+            "supports_parallel_reads": True,
+            "supports_transactions": True,
+            "max_connections": 100
+        }
+
     def __init__(self, config: Dict[str, Any]):
-        super(PostgresConnector, self).__init__(config)
+        super().__init__(config)
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self) -> bool:
         try:
-            database = self.config.get("database") or self.config.get("database_name") or "postgres"
-            user = self.config.get("user") or self.config.get("username")
-            port = int(self.config.get("port") or 5432)
-            ssl = self.config.get("ssl") or self.config.get("ssl_enabled", False)
-            
             self.pool = await asyncpg.create_pool(
                 host=self.config.get("host"),
-                port=port,
-                user=user,
+                port=self.config.get("port"),
+                user=self.config.get("username"),
                 password=self.config.get("password"),
-                database=database,
-                ssl='require' if ssl else False
+                database=self.config.get("database"),
+                ssl='require' if self.config.get("ssl_enabled") else False
             )
             return True
         except Exception as e:
@@ -48,6 +71,15 @@ class PostgresConnector(BaseConnector):
             c.column_name,
             c.data_type,
             c.is_nullable,
+            (
+                SELECT 1 FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+                WHERE tc.constraint_type = 'PRIMARY KEY' 
+                AND kcu.table_name = c.table_name 
+                AND kcu.table_schema = c.table_schema
+                AND kcu.column_name = c.column_name
+                LIMIT 1
+            ) as is_pk,
             reals.reltuples::bigint as row_count_estimate,
             pg_total_relation_size('"' || c.table_schema || '"."' || c.table_name || '"') as table_size
         FROM information_schema.columns c
@@ -69,13 +101,34 @@ class PostgresConnector(BaseConnector):
                     "name": row["name"],
                     "row_count_estimate": row.get("row_count_estimate", 0),
                     "table_size": row.get("table_size", 0),
-                    "columns": []
+                    "columns": [],
+                    "primary_key": None,
+                    "recommended_cursor": None
                 }
+            
+            is_pk = row.get("is_pk") == 1
+            col_name = row["column_name"]
+            data_type = row["data_type"]
+            
             tables[table_key]["columns"].append({
-                "name": row["column_name"],
-                "type": row["data_type"],
-                "nullable": row["is_nullable"] == "YES"
+                "name": col_name,
+                "type": data_type,
+                "nullable": row["is_nullable"] == "YES",
+                "is_primary_key": is_pk
             })
+            
+            if is_pk:
+                tables[table_key]["primary_key"] = col_name
+
+            # Timestamp detection heuristic for recommended cursor
+            ts_keywords = ['updated', 'modified', 'created', 'timestamp', 'time', 'date', 'at']
+            is_ts_type = any(t in data_type.lower() for t in ['timestamp', 'date', 'time'])
+            is_ts_name = any(k in col_name.lower() for k in ts_keywords)
+            
+            if is_ts_type or is_ts_name:
+                # Prioritize 'updated' or 'modified' for incremental syncs
+                if not tables[table_key]["recommended_cursor"] or 'updated' in col_name.lower() or 'modified' in col_name.lower():
+                    tables[table_key]["recommended_cursor"] = col_name
             
         return list(tables.values())
 
@@ -147,6 +200,59 @@ class PostgresConnector(BaseConnector):
                     if not rows:
                         break
                     yield [dict(row) for row in rows]
+
+    async def diagnose(self) -> Dict[str, Any]:
+        """Perform deep diagnostics for PostgreSQL."""
+        import socket
+        import time
+        
+        report = {
+            "dns_resolution": "pending",
+            "tcp_connection": "pending",
+            "authentication": "pending",
+            "permission_check": "pending",
+            "latency_ms": 0
+        }
+        
+        # 1. DNS Resolution
+        try:
+            host = self.config.get("host")
+            socket.gethostbyname(host)
+            report["dns_resolution"] = "success"
+        except Exception as e:
+            report["dns_resolution"] = f"failed: {str(e)}"
+            return report
+            
+        # 2. TCP Connection
+        start_time = time.time()
+        try:
+            host = self.config.get("host")
+            port = self.config.get("port")
+            s = socket.create_connection((host, port), timeout=5)
+            s.close()
+            report["tcp_connection"] = "success"
+        except Exception as e:
+            report["tcp_connection"] = f"failed: {str(e)}"
+            return report
+            
+        # 3. Authentication & Permission
+        try:
+            success = await self.connect()
+            if success:
+                report["authentication"] = "success"
+                # Check permissions
+                try:
+                    await self.discover_schema()
+                    report["permission_check"] = "success"
+                except Exception as e:
+                    report["permission_check"] = f"restricted: {str(e)}"
+            else:
+                report["authentication"] = "failed: Credentials rejected"
+        except Exception as e:
+            report["authentication"] = f"failed: {str(e)}"
+            
+        report["latency_ms"] = int((time.time() - start_time) * 1000)
+        return report
 
     async def disconnect(self):
         if self.pool is not None:

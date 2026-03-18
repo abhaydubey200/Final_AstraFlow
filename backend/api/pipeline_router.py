@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any, Optional
 import json
+import os
 from services.pipeline_service import PipelineService
 from services.worker_service import WorkerService
 from api.dependencies import get_pipeline_service, get_worker_service
@@ -173,11 +174,33 @@ async def trigger_pipeline_run(
             elif ntype in ("load", "destination") and not dest_config:
                 dest_config = cfg
 
-    # Stabilization: Set status to 'running' to activate DAG scheduler
+    # Stabilization: Set status to 'running'
     run_record = await service.create_run(pipeline_id, "running")
     run_id = run_record["id"]
-    
-    # Still enqueue the first job for legacy stage-based workers if needed
+
+    # In mock mode, execute the entire pipeline inline (no daemon needed)
+    if os.getenv("USE_MOCK_DB") == "true":
+        import asyncio
+        stages = ["extract", "transform", "validate", "load"]
+        for stage in stages:
+            job_id = await worker_service.enqueue_job(
+                pipeline_id=pipeline_id,
+                run_id=run_id,
+                stage=stage,
+                payload={"source": source_config or {}, "destination": dest_config or {}}
+            )
+            # Simulate minimal delay per stage
+            await asyncio.sleep(0.1)
+        # Mark run as completed immediately
+        async with worker_service.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE public.pipeline_runs SET status = 'completed', finished_at = NOW() WHERE id = $1",
+                run_id
+            )
+        print(f"MOCK_ROUTER: Pipeline {pipeline_id} run {run_id} completed inline.")
+        return {"run_id": run_id, "status": "completed"}
+
+    # Production: enqueue just the first stage and let the daemon handle the rest
     if source_config and dest_config:
         await worker_service.enqueue_job(
             pipeline_id=pipeline_id,
@@ -187,6 +210,14 @@ async def trigger_pipeline_run(
         )
     
     return {"run_id": run_id, "status": "running"}
+
+@router.get("/runs/{run_id}/tasks")
+async def list_run_tasks(
+    run_id: str,
+    service: PipelineService = Depends(get_pipeline_service)
+):
+    """List all tasks for a specific pipeline run."""
+    return await service.list_run_tasks(run_id)
 
 @router.post("/{pipeline_id}/validate")
 async def validate_pipeline(

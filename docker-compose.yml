@@ -1,85 +1,38 @@
 version: '3.8'
 
 services:
-  astra-api:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: astraflow
+      POSTGRES_USER: astra_admin
+      POSTGRES_PASSWORD: astra_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: astra-api
+    environment:
+      - DATABASE_URL=postgresql://astra_admin:astra_password@db:5432/astraflow
+      - USE_MOCK_DB=false
+      - ASTRAFLOW_MASTER_KEY=${ASTRAFLOW_MASTER_KEY}
     ports:
       - "8000:8000"
-    env_file: .env
-    environment:
-      - SERVICE_TYPE=api
-    depends_on:
-      - redis
-      - db
-
-  astra-worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: astra-worker
-    command: ["python", "-m", "backend.worker_daemon"]
-    env_file: .env
-    environment:
-      - SERVICE_TYPE=worker
-    depends_on:
-      - redis
-      - db
-      - minio
-
-  astra-scheduler:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: astra-scheduler
-    command: ["python", "-m", "backend.services.scheduler_service"]
-    env_file: .env
-    environment:
-      - SERVICE_TYPE=scheduler
     depends_on:
       - db
-      - redis
 
-  astra-ui:
+  frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: astra-ui
     ports:
       - "80:80"
     depends_on:
-      - astra-api
-
-  redis:
-    image: redis:7-alpine
-    container_name: astra-redis
-    ports:
-      - "6379:6379"
-
-  minio:
-    image: minio/minio
-    container_name: astra-minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
-
-  db:
-    image: postgres:15-alpine
-    container_name: astra-db
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: astraflow
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - backend
 
 volumes:
   postgres_data:

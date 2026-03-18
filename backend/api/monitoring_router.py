@@ -156,14 +156,6 @@ async def update_alert_rule(rule_id: str, updates: Dict[str, Any]):
 async def delete_alert_rule(rule_id: str):
     return {"status": "deleted"}
 
-@router.post("/notifications/{notification_id}/read")
-async def mark_notification_read(notification_id: str):
-    return {"status": "success"}
-
-@router.post("/notifications/read-all")
-async def mark_all_read_notif():
-    return {"status": "success"}
-
 @router.get("/analytics/trends")
 async def get_performance_trends(
     pipeline_id: Optional[str] = None, 

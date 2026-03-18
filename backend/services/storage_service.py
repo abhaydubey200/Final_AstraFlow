@@ -40,6 +40,10 @@ class StorageService:
 
     async def upload_file(self, local_path: str, remote_path: str) -> str:
         """Uploads a local file to object storage."""
+        if os.getenv("USE_MOCK_DB") == "true":
+            print(f"Mock storage upload: {local_path} -> {remote_path}")
+            return remote_path
+            
         try:
             self.s3.upload_file(local_path, self.bucket_name, remote_path)
             return remote_path
