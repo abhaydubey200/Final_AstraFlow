@@ -38,8 +38,8 @@ export default function SchemaSelectionPage() {
   const configStr = searchParams.get("config");
   const config = configStr ? JSON.parse(decodeURIComponent(configStr)) : {};
   
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [selectedSchemas, setSelectedSchemas] = useState<string[]>([]);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [selectedDatabases, setSelectedDatabases] = useState<string[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [tableSearch, setTableSearch] = useState("");
@@ -53,36 +53,36 @@ export default function SchemaSelectionPage() {
   const previewMutation = usePreviewData();
 
   useEffect(() => {
-    fetchSchemas();
+    fetchDatabases();
   }, [sourceId]);
 
-  const fetchSchemas = async () => {
+  const fetchDatabases = async () => {
     setIsLoading(true);
     try {
       const { results } = await resourceDiscovery.mutateAsync({
         ...config,
         type: sourceId!,
-        target: "schemas",
+        target: "databases",
       });
-      setSchemas(results as string[]);
+      setDatabases(results as string[]);
       if (results.length > 0) {
-        setSelectedSchemas([results[0] as string]);
+        setSelectedDatabases([results[0] as string]);
         fetchTables(results[0] as string);
       }
     } catch (err) {
-      console.error("Failed to fetch schemas", err);
+      console.error("Failed to fetch databases", err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchTables = async (schemaName: string) => {
+  const fetchTables = async (databaseName: string) => {
     setLoadingTables(true);
     try {
       const { results } = await resourceDiscovery.mutateAsync({
         ...config,
         type: sourceId!,
-        schema_name: schemaName,
+        database_name: databaseName,
         target: "tables",
       });
       setTables(results);
@@ -93,14 +93,14 @@ export default function SchemaSelectionPage() {
     }
   };
 
-  const handleSchemaToggle = (schema: string) => {
-    const next = selectedSchemas.includes(schema) 
-      ? selectedSchemas.filter(s => s !== schema)
-      : [...selectedSchemas, schema];
+  const handleDatabaseToggle = (db: string) => {
+    const next = selectedDatabases.includes(db) 
+      ? selectedDatabases.filter(s => s !== db)
+      : [...selectedDatabases, db];
     
-    setSelectedSchemas(next);
-    if (next.includes(schema)) {
-      fetchTables(schema);
+    setSelectedDatabases(next);
+    if (next.includes(db)) {
+      fetchTables(db);
     }
   };
 
@@ -131,7 +131,7 @@ export default function SchemaSelectionPage() {
         ...config,
         type: sourceId!,
         table_name: tableName,
-        schema_name: selectedSchemas[0]
+        database_name: selectedDatabases[0]
       });
       setPreviewData(result);
     } catch (err) {
@@ -162,7 +162,7 @@ export default function SchemaSelectionPage() {
               <Box className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-4xl font-black font-display text-foreground tracking-tight">Select Schema</h1>
+              <h1 className="text-4xl font-black font-display text-foreground tracking-tight">Select Database</h1>
               <p className="text-sm font-bold text-muted-foreground/60 flex items-center gap-2 uppercase tracking-widest">
                 Step 3: Discovering resources in {sourceId}
               </p>
@@ -171,11 +171,11 @@ export default function SchemaSelectionPage() {
         </div>
 
         <div className="flex-1 flex gap-8 min-h-0 overflow-hidden">
-          {/* Left: Schemas */}
+          {/* Left: Databases */}
           <Card className="w-80 rounded-[32px] border-border/40 bg-card/40 flex flex-col overflow-hidden">
             <div className="p-6 border-b border-border/40 bg-muted/10">
-              <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground/60 mb-2">Schemas</h3>
-              <p className="text-[10px] font-bold text-muted-foreground/40 leading-relaxed italic">"A high-level logical container for your data assets."</p>
+              <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground/60 mb-2">Databases</h3>
+              <p className="text-[10px] font-bold text-muted-foreground/40 leading-relaxed italic">"A top-level container for all your data and schemas."</p>
             </div>
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-1">
@@ -187,21 +187,21 @@ export default function SchemaSelectionPage() {
                     </div>
                   ))
                 ) : (
-                  schemas.map(schema => (
+                  databases.map(db => (
                     <div 
-                      key={schema}
+                      key={db}
                       className={cn(
                         "flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all",
-                        selectedSchemas.includes(schema) ? "bg-primary/10 text-primary" : "hover:bg-muted/30 text-muted-foreground"
+                        selectedDatabases.includes(db) ? "bg-primary/10 text-primary" : "hover:bg-muted/30 text-muted-foreground"
                       )}
-                      onClick={() => handleSchemaToggle(schema)}
+                      onClick={() => handleDatabaseToggle(db)}
                     >
                       <Checkbox 
-                        checked={selectedSchemas.includes(schema)} 
-                        onCheckedChange={() => handleSchemaToggle(schema)}
+                        checked={selectedDatabases.includes(db)} 
+                        onCheckedChange={() => handleDatabaseToggle(db)}
                         className="rounded-md border-border/60 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                       />
-                      <span className="text-xs font-black tracking-tight">{schema}</span>
+                      <span className="text-xs font-black tracking-tight">{db}</span>
                     </div>
                   ))
                 )}
@@ -215,10 +215,10 @@ export default function SchemaSelectionPage() {
               <div className="flex items-center justify-between">
                 <div>
                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-foreground/80">Table Inventory</h3>
-                   <p className="text-[10px] font-bold text-muted-foreground/40 mt-1 italic">Discovering assets in {selectedSchemas[0] || "..."}</p>
+                   <p className="text-[10px] font-bold text-muted-foreground/40 mt-1 italic">Discovering assets in {selectedDatabases[0] || "..."}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl border-border/40 hover:bg-primary/5 hover:border-primary/20 transition-all" onClick={() => fetchTables(selectedSchemas[0])}>
+                  <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl border-border/40 hover:bg-primary/5 hover:border-primary/20 transition-all" onClick={() => fetchTables(selectedDatabases[0])}>
                     <RefreshCw className={cn("w-3.5 h-3.5", loadingTables && "animate-spin")} />
                   </Button>
                   <Separator orientation="vertical" className="h-6 bg-border/20" />
@@ -417,3 +417,4 @@ export default function SchemaSelectionPage() {
     </div>
   );
 }
+

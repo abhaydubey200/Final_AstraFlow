@@ -61,6 +61,33 @@ class WorkerService:
                         row['run_id']
                     )
 
+    async def _update_stage_node_status(self, run_id: str, stage: str, status: str, error: Optional[str] = None):
+        """Updates pipeline_task_runs status for nodes corresponding to the current stage."""
+        stage_to_types = {
+            'extract': ['source', 'extract'],
+            'transform': ['transform', 'filter', 'join', 'aggregate'],
+            'validate': ['validate'],
+            'load': ['load', 'destination']
+        }
+        node_types = stage_to_types.get(stage.lower(), [])
+        if not node_types:
+            return
+            
+        async with self.pool.acquire() as conn:
+            query = """
+                UPDATE public.pipeline_task_runs ptr
+                SET status = $1, 
+                    updated_at = NOW(), 
+                    start_time = COALESCE(ptr.start_time, CASE WHEN $1 = 'running' THEN NOW() ELSE NULL END),
+                    end_time = CASE WHEN $1 IN ('success', 'failed', 'completed') THEN NOW() ELSE ptr.end_time END,
+                    error_message = $2
+                FROM public.pipeline_nodes pn
+                WHERE ptr.node_id = pn.id 
+                  AND ptr.pipeline_run_id = $3
+                  AND LOWER(pn.node_type) = ANY($4::text[])
+            """
+            await conn.execute(query, status if status != "completed" else "success", error, uuid.UUID(str(run_id)), node_types)
+
     async def claim_task_run(self) -> Optional[Dict[str, Any]]:
         """Claims a queued task run from the DAG engine."""
         async with self.pool.acquire() as conn:
@@ -115,16 +142,44 @@ class WorkerService:
 
         print(f"Worker processing job {job_id} [Stage: {stage}] for Pipeline {pipeline_id}")
         
+        # Mark nodes as running
+        await self._update_stage_node_status(str(run_id), stage, "running")
+        
         try:
             # ----------------------------------------------------------------
             # MOCK MODE: Simulate all stages inline without real DB connections
             # ----------------------------------------------------------------
             if os.getenv("USE_MOCK_DB") == "true":
                 print(f"MOCK_WORKER: Simulating stage '{stage}' for Run {run_id}")
-                await asyncio.sleep(0.3)  # Simulate I/O work
+                
+                # Stabilization: Emit logs for UI
+                from services.pipeline_service import PipelineService
+                ps = PipelineService(self.pool)
+                
+                await ps.log_event(str(run_id), str(pipeline_id), stage, f"Starting {stage} stage (simulated)", "INFO")
+                await asyncio.sleep(0.5)  # Simulate I/O work
+                
+                # Simulate some "progress" for the UI
+                if stage == 'extract':
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(
+                "UPDATE public.pipeline_runs SET rows_processed = $1 WHERE id = $2",
+                5000,
+                run_id
+            )
+                elif stage == 'load':
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE public.pipeline_runs SET rows_processed = $1 WHERE id = $2",
+                            10000,
+                            run_id
+                        )
+
+                await ps.log_event(str(run_id), str(pipeline_id), stage, f"Completed {stage} stage (simulated)", "INFO")
 
                 # Mark this job complete
                 await self.update_job_status(str(job_id), "completed")
+                await self._update_stage_node_status(str(run_id), stage, "success")
 
                 # Advance to next stage or finalize run
                 next_stages = {'extract': 'transform', 'transform': 'validate', 'validate': 'load'}
@@ -136,12 +191,13 @@ class WorkerService:
                     # Final stage complete — mark run as completed
                     async with self.pool.acquire() as conn:
                         await conn.execute(
-                            "UPDATE public.pipeline_runs SET status = 'completed', finished_at = NOW() WHERE id = $1",
+                            "UPDATE public.pipeline_runs SET status = 'completed', run_status = 'completed', finished_at = NOW() WHERE id = $1",
                             run_id
                         )
                     print(f"MOCK_WORKER: Run {run_id} completed successfully!")
                 print(f"MOCK_WORKER: Job {job_id} done.")
                 return  # Exit early — no real DB work needed
+
 
             # Phase 2: Staging Extraction Flow
             if stage == 'extract':
@@ -208,6 +264,7 @@ class WorkerService:
             
             # 2. Update job status
             await self.update_job_status(str(job_id), "completed")
+            await self._update_stage_node_status(str(run_id), stage, "success")
             
             # 3. Determine next stage or finish run
             # Stabilization: Fetch next stage from pipeline configuration if available,
@@ -262,6 +319,7 @@ class WorkerService:
             print(f"Job {job_id} completed successfully.")
         except Exception as e:
             await self.update_job_status(str(job_id), "failed", str(e))
+            await self._update_stage_node_status(str(run_id), stage, "failed", str(e))
             print(f"Error processing job {job_id}: {e}")
 
     async def process_task(self, task_run: Dict[str, Any]):

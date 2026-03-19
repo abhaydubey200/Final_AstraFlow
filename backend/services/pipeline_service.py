@@ -51,8 +51,8 @@ class PipelineService:
             async with conn.transaction():
                 # 1. Insert Pipeline
                 pipeline_id = await conn.fetchval(
-                    "INSERT INTO pipelines (name, status, environment, description) VALUES ($1, $2, $3, $4) RETURNING id",
-                    pipeline.get("name"), "draft", pipeline.get("environment", "dev"), pipeline.get("description")
+                    "INSERT INTO pipelines (name, status, environment, description, execution_mode) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                    pipeline.get("name"), "draft", pipeline.get("environment", "dev"), pipeline.get("description"), pipeline.get("execution_mode", "linear")
                 )
                 
                 # 2. Assign IDs and Insert Nodes
@@ -209,6 +209,15 @@ class PipelineService:
                 "INSERT INTO pipeline_runs (pipeline_id, status, environment, start_time) VALUES ($1, $2, $3, NOW()) RETURNING id",
                 p_uuid, status, environment
             )
+
+            # Initialize task runs for all nodes
+            nodes = await conn.fetch("SELECT id FROM pipeline_nodes WHERE pipeline_id = $1", p_uuid)
+            for node in nodes:
+                await conn.execute(
+                    "INSERT INTO public.pipeline_task_runs (pipeline_run_id, node_id, status) VALUES ($1, $2, 'pending')",
+                    run_id, node['id']
+                )
+
             return {"id": str(run_id), "status": status, "environment": environment}
 
     async def list_runs(self, pipeline_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -234,7 +243,7 @@ class PipelineService:
             return []
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM public.task_runs WHERE run_id = $1 ORDER BY started_at ASC",
+                "SELECT * FROM public.pipeline_task_runs WHERE pipeline_run_id = $1 ORDER BY start_time ASC",
                 r_uuid
             )
             return [dict(r) for r in rows]
@@ -299,7 +308,7 @@ class PipelineService:
                 # 1. Update metadata
                 updates = []
                 params = [p_uuid]
-                for key in ['name', 'description', 'status', 'schedule_type', 'schedule_config']:
+                for key in ['name', 'description', 'status', 'schedule_type', 'schedule_config', 'execution_mode']:
                     if key in payload:
                         updates.append(f"{key} = ${len(params) + 1}")
                         params.append(payload[key])
@@ -327,7 +336,7 @@ class PipelineService:
                     
                     # 3. Compile DAG for Scheduler
                     print("DEBUG: Compiling DAG...")
-                    await self.compile_dag(str(pipeline_id), payload.get('nodes', []), payload.get('edges', []))
+                    await self.compile_dag(str(pipeline_id), nodes, edges)
                     print("DEBUG: DAG compiled.")
 
                     # Update current active nodes
@@ -433,7 +442,7 @@ class PipelineService:
             rows = await conn.fetch("SELECT * FROM astra_worker_queue WHERE run_id = $1", uuid.UUID(run_id))
             return [dict(r) for r in rows]
 
-    async def get_logs(self, run_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def get_run_logs(self, run_id: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         async with self.pool.acquire() as conn:
             query = "SELECT * FROM public.pipeline_logs WHERE run_id = $1"
             params = [uuid.UUID(run_id)]

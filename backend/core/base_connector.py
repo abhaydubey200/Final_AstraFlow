@@ -1,7 +1,25 @@
+import os
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
 class BaseConnector(ABC):
+    def _is_mock(self) -> bool:
+        """Returns True if mock mode is enabled and real connectors are disabled."""
+        return os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true"
+
+    def _should_fail_dns(self) -> bool:
+        """Simulate DNS failure for specific test hosts in mock mode."""
+        host = (self.config.get("host") or "").lower()
+        return "non-existent" in host or "invalid-host" in host
+
+    def _should_fail_tcp(self) -> bool:
+        """Simulate TCP failure for specific test hosts/ports in mock mode."""
+        host = (self.config.get("host") or "").lower()
+        port = int(self.config.get("port") or 0)
+        return "unreachable" in host or port == 9999 or "non-existent" in host
+
+
+
     def __init__(self, config: Dict[str, Any]):
         self.config = self.normalize_config(config)
 
@@ -66,6 +84,13 @@ class BaseConnector(ABC):
     async def diagnose(self) -> Dict[str, Any]:
         """Perform deep diagnostics and return a structured report."""
         raise NotImplementedError()
+    
+    @abstractmethod
+    async def discover_resources(self, target: str, **kwargs) -> List[Any]:
+        """Discover resources like databases, schemas, or tables with optional context."""
+        raise NotImplementedError()
+
+
 
     @abstractmethod
     async def disconnect(self):

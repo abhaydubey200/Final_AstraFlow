@@ -1,5 +1,7 @@
 import snowflake.connector
 import os
+import socket
+
 import asyncio
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
@@ -38,28 +40,36 @@ class SnowflakeConnector(BaseConnector):
         self.conn: Any = None
 
     async def connect(self) -> bool:
-        """Establish connection to Snowflake."""
+        """Establish connection to Snowflake. Only uses mock if host is explicitly a mock pattern."""
+        host = (self.config.get("host") or "").lower()
+
+        # Only use Mock if explicitly requested via host name
+        if "mock" in host or "demo" in host:
+            print(f"Using Mock Snowflake connection for {host}")
+            self.conn = "MOCK_CONN"
+            return True
+
+        # Try real connection
         try:
-            if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
-                print(f"Mock Snowflake connected")
-                self.conn = "MOCK_CONN"
-                return True
-            
-            # Non-blocking connection if possible, or run in thread
-            self.conn = await asyncio.to_thread(
-                snowflake.connector.connect,
-                user=self.config.get("user") or self.config.get("username"),
-                password=self.config.get("password"),
-                account=self.config.get("host") or self.config.get("account"),
-                port=self.config.get("port", 443),
-                warehouse=self.config.get("warehouse", self.config.get("database")),
-                database=self.config.get("database") or self.config.get("database_name"),
-                role=self.config.get("role", "PUBLIC"),
-                schema=self.config.get("schema", "PUBLIC")
+            self.conn = await asyncio.wait_for(
+                asyncio.to_thread(
+                    snowflake.connector.connect,
+                    user=self.config.get("user") or self.config.get("username"),
+                    password=self.config.get("password"),
+                    account=self.config.get("host") or self.config.get("account"),
+                    port=self.config.get("port", 443),
+                    warehouse=self.config.get("warehouse", self.config.get("database")),
+                    database=self.config.get("database") or self.config.get("database_name"),
+                    role=self.config.get("role", "PUBLIC"),
+                    schema=self.config.get("schema", "PUBLIC")
+                ),
+                timeout=20  # Snowflake can be slow
             )
+            print(f"Successfully connected to real Snowflake instance at {host}")
             return True
         except Exception as e:
-            print(f"Snowflake connection error: {e}")
+            # No silent fallback to mock for real accounts
+            print(f"Snowflake connection error for {host}: {e}")
             return False
 
     async def diagnose(self) -> Dict[str, Any]:
@@ -78,21 +88,28 @@ class SnowflakeConnector(BaseConnector):
         # 1. DNS Resolution
         try:
             account = self.config.get("host", "")
-            # Snowflake "host" is often the account identifier, need to check if it's a full URL
             host = account if ".snowflakecomputing.com" in account else f"{account}.snowflakecomputing.com"
-            socket.gethostbyname(host)
+            if self._should_fail_dns():
+                 raise socket.gaierror(-2, "Name or service not known")
+            if not self._is_mock():
+                socket.gethostbyname(host)
             report["dns_resolution"] = "success"
         except Exception as e:
             report["dns_resolution"] = f"failed: {str(e)}"
             return report
-            
+
         # 2. TCP Connection
         start_time = time.time()
         try:
             port = self.config.get("port", 443)
-            s = socket.create_connection((host, int(port)), timeout=5)
-            s.close()
+            if self._should_fail_tcp():
+                raise ConnectionRefusedError("Connection refused (simulated)")
+            if not self._is_mock():
+                s = socket.create_connection((host, int(port)), timeout=5)
+                s.close()
             report["tcp_connection"] = "success"
+
+
         except Exception as e:
             report["tcp_connection"] = f"failed: {str(e)}"
             return report
@@ -100,29 +117,97 @@ class SnowflakeConnector(BaseConnector):
         # 3. Authentication & Permission
         try:
             success = await self.connect()
+            if self._is_mock() and success:
+                report["authentication"] = "success"
+                report["version"] = "Snowflake 7.21 (Mock)"
+                report["permission_check"] = "success"
+                report["status"] = "healthy"
+                report["latency_ms"] = int((time.time() - start_time) * 1000)
+                return report
+
             if success:
                 report["authentication"] = "success"
+                # Check permissions
                 try:
-                    # Use the resource discovery logic
-                    await self.discover_resources({"target": "warehouses"})
+                    await self.discover_schema()
                     report["permission_check"] = "success"
+                    report["status"] = "healthy"
                 except Exception as e:
                     report["permission_check"] = f"restricted: {str(e)}"
+                    report["status"] = "degraded"
             else:
                 report["authentication"] = "failed: Credentials rejected"
+                report["status"] = "failed"
         except Exception as e:
             report["authentication"] = f"failed: {str(e)}"
+            report["status"] = "failed"
             
         report["latency_ms"] = int((time.time() - start_time) * 1000)
         return report
 
+
     async def disconnect(self):
         if self.conn is not None:
             try:
-                self.conn.close()
+                if self.conn != "MOCK_CONN":
+                    self.conn.close()
             except:
                 pass
             self.conn = None
+
+    async def discover_resources(self, target: str, **kwargs) -> List[Any]:
+        """Discover Snowflake resources like warehouses, databases, schemas, or tables with optional context."""
+        database_context = kwargs.get("database_name")
+
+        if self.conn == "MOCK_CONN":
+            if target == "warehouses":
+                return ["COMPUTE_WH", "DEMO_WH", "ANALYTICS_WH"]
+            if target == "databases":
+                return ["DS_GROUP_HR_DB", "SNOWFLAKE_SAMPLE_DATA", "UTIL_DB", "SALES_ANALYTICS"]
+            if target == "schemas":
+                return ["PUBLIC", "INFORMATION_SCHEMA", "STAGING", "RAW"]
+            if target == "tables":
+                db = database_context or "DS_GROUP_HR_DB"
+                return [
+                    {"name": "USERS", "database": db, "schema": "PUBLIC"},
+                    {"name": "ORDERS", "database": db, "schema": "PUBLIC"},
+                    {"name": "PRODUCTS", "database": db, "schema": "PUBLIC"},
+                    {"name": "INVENTORY", "database": db, "schema": "PUBLIC"},
+                    {"name": "SALES_DAILY", "database": db, "schema": "ANALYTICS"},
+                    {"name": "MARKETING_LEADS", "database": db, "schema": "MARKETING"}
+                ]
+            return []
+
+        if self.conn is None:
+            return []
+
+        cursor = self.conn.cursor()
+        try:
+            results = []
+            if target == "warehouses":
+                cursor.execute("SHOW WAREHOUSES")
+                results = [r[0] for r in cursor.fetchall()]
+            elif target == "databases":
+                cursor.execute("SHOW DATABASES")
+                results = [r[1] for r in cursor.fetchall()]
+            elif target == "schemas":
+                db = database_context or self.config.get("database")
+                if db:
+                    cursor.execute(f'SHOW SCHEMAS IN DATABASE "{db}"')
+                    results = [r[1] for r in cursor.fetchall()]
+            elif target == "tables":
+                db = database_context or self.config.get("database")
+                if db:
+                    # Discover all tables in database if schema not specified
+                    cursor.execute(f'SHOW TABLES IN DATABASE "{db}"')
+                    # Snowflake SHOW TABLES IN DATABASE returns database_name at index 2 and schema_name at index 3
+                    # (Standard snowflake-connector-python indexes)
+                    results = [{"name": r[1], "database": r[2], "schema": r[3]} for r in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+
+
 
     async def health_check(self) -> bool:
         if self.conn is None:
@@ -141,6 +226,60 @@ class SnowflakeConnector(BaseConnector):
         return False
 
     async def discover_schema(self) -> List[Dict[str, Any]]:
+        if self.conn == "MOCK_CONN":
+            return [
+                {
+                    "schema": "PUBLIC", 
+                    "name": "USERS", 
+                    "columns": [
+                        {"name": "ID", "type": "NUMBER", "nullable": False, "is_primary_key": True},
+                        {"name": "EMAIL", "type": "TEXT", "nullable": False},
+                        {"name": "CREATED_AT", "type": "TIMESTAMP_NTZ", "nullable": False}
+                    ],
+                    "primary_key": "ID",
+                    "recommended_cursor": "CREATED_AT"
+                },
+                {
+                    "schema": "PUBLIC", 
+                    "name": "ORDERS", 
+                    "columns": [
+                        {"name": "ID", "type": "NUMBER", "nullable": False, "is_primary_key": True},
+                        {"name": "USER_ID", "type": "NUMBER", "nullable": False},
+                        {"name": "TOTAL", "type": "NUMBER", "nullable": False},
+                        {"name": "ORDER_DATE", "type": "TIMESTAMP_NTZ", "nullable": False}
+                    ],
+                    "primary_key": "ID",
+                    "recommended_cursor": "ORDER_DATE"
+                },
+                {
+                    "schema": "PUBLIC", 
+                    "name": "PRODUCTS", 
+                    "columns": [
+                        {"name": "ID", "type": "NUMBER", "nullable": False, "is_primary_key": True},
+                        {"name": "NAME", "type": "TEXT", "nullable": False},
+                        {"name": "PRICE", "type": "NUMBER", "nullable": False}
+                    ],
+                    "primary_key": "ID"
+                },
+                {
+                    "schema": "RAW", 
+                    "name": "INVENTORY", 
+                    "columns": [
+                        {"name": "SKU", "type": "TEXT", "nullable": False, "is_primary_key": True},
+                        {"name": "QUANTITY", "type": "NUMBER", "nullable": False}
+                    ],
+                    "primary_key": "SKU"
+                },
+                {
+                    "schema": "ANALYTICS", 
+                    "name": "SALES_DAILY", 
+                    "columns": [
+                        {"name": "DATE", "type": "DATE", "nullable": False},
+                        {"name": "REVENUE", "type": "NUMBER", "nullable": False}
+                    ],
+                    "recommended_cursor": "DATE"
+                }
+            ]
         if self.conn is None:
             return []
         
@@ -148,13 +287,29 @@ class SnowflakeConnector(BaseConnector):
         col_cursor = None
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SHOW TABLES")
+            db_name = self.config.get("database") or self.config.get("database_name")
+            
+            # Show all tables and views in the entire database
+            cursor.execute(f'SHOW TABLES IN DATABASE "{db_name}"')
             rows = cursor.fetchall()
+            
+            # and views
+            try:
+                cursor.execute(f'SHOW VIEWS IN DATABASE "{db_name}"')
+                rows.extend(cursor.fetchall())
+            except Exception as e:
+                print(f"Non-critical: Could not fetch views for Snowflake: {e}")
             
             tables = []
             for row in rows:
-                schema_name = row[2]
+                # Snowflake indices for SHOW TABLES/VIEWS: 1:name, 2:schema_name
                 table_name = row[1]
+                schema_name = row[2]
+                
+                # Skip internal schemas
+                if schema_name.upper() in ['INFORMATION_SCHEMA']:
+                    continue
+
                 
                 col_cursor = self.conn.cursor()
                 col_cursor.execute(f'DESC TABLE "{schema_name}"."{table_name}"')

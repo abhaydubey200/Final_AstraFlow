@@ -153,13 +153,17 @@ class ConnectionService:
         password = await self.secret_service.get_secret(connection_id, 'password')
         return {"password": password} if password else {}
 
-    async def test_connection(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    async def test_connection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Test a connection and return a detailed diagnostic report."""
-        connector_type = config.get("type", "postgresql")
+        # Handle cases where config is nested or keys are at top level
+        config = payload.get("config", payload) if isinstance(payload.get("config"), dict) else payload
         
-        # Resolve password if connection_id provided (for editing existing connections)
+        connector_type = payload.get("connector_type") or config.get("type") or "postgresql"
+        
+        # Resolve password if connection_id provided
         password = config.get("password")
-        connection_id = config.get("id") or config.get("connection_id")
+        connection_id = config.get("id") or config.get("connection_id") or payload.get("connection_id")
+        
         if not password and connection_id:
             password = await self.secret_service.get_secret(connection_id, "password")
 
@@ -175,6 +179,7 @@ class ConnectionService:
             "ssl": config.get("ssl_enabled", False),
             "warehouse": config.get("warehouse_name") or config.get("warehouse"),
         }
+
 
         try:
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
@@ -241,39 +246,6 @@ class ConnectionService:
         connector_type = config.get("type") or config.get("connector_type")
         connection_id = config.get("connection_id") or config.get("id")
         
-        # --- Mock Bypass ---
-        if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
-            print(f"DEBUG: Mock schema discovery for {connector_type}")
-            tables_data = [
-                {
-                    "schema": "public", 
-                    "name": "users", 
-                    "primary_key": "id",
-                    "recommended_cursor": "updated_at",
-                    "columns": [
-                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True}, 
-                        {"name": "email", "type": "string", "nullable": False},
-                        {"name": "updated_at", "type": "timestamp", "nullable": False}
-                    ]
-                },
-                {
-                    "schema": "public", 
-                    "name": "orders", 
-                    "primary_key": "id",
-                    "columns": [
-                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True}, 
-                        {"name": "amount", "type": "decimal", "nullable": True}
-                    ]
-                }
-            ]
-            # Apply recommendation logic to mock data too
-            for table in tables_data:
-                table["recommendation"] = {
-                    "mode": "cdc" if table.get("primary_key") else "incremental",
-                    "reason": "Primary key identified" if table.get("primary_key") else "No PK; falling back to incremental"
-                }
-            return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
-
         # Check cache first
         if connection_id and not config.get("force_refresh"):
             cached = await self.metadata_service.get_cached_schema(connection_id)
@@ -352,58 +324,6 @@ class ConnectionService:
         connector_type = (config.get("type") or config.get("connector_type") or "").lower()
         target = config.get("target", "databases")
         
-        # --- Mock Bypass for Session Persistence and Demo Stability ---
-        if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
-            print(f"DEBUG: Mock discovery for {connector_type} target {target}")
-            if target == "warehouses":
-                return {"results": ["COMPUTE_WH", "DEMO_WH", "ANALYTICS_WH"]}
-            if target == "databases":
-                if connector_type == "snowflake":
-                    return {"results": ["DS_GROUP_HR_DB", "SNOWFLAKE_SAMPLE_DATA", "UTIL_DB"]}
-                if connector_type == "postgresql":
-                    return {"results": ["postgres", "main_db", "test_db"]}
-                return {"results": ["demo_db", "test_db"]}
-            if target == "schemas":
-                if connector_type == "snowflake":
-                    return {"results": ["PUBLIC", "INFORMATION_SCHEMA", "STAGING"]}
-                return {"results": ["public", "internal"]}
-            if target == "tables":
-                # Mock tables with recommendations for Step 7
-                tables_data = [
-                    {
-                        "schema": "public", 
-                        "name": "users", 
-                        "primary_key": "id",
-                        "recommended_cursor": "updated_at",
-                        "columns": [
-                            {"name": "id", "type": "INTEGER", "primary_key": True},
-                            {"name": "name", "type": "VARCHAR"},
-                            {"name": "email", "type": "VARCHAR"},
-                            {"name": "updated_at", "type": "TIMESTAMP"},
-                            {"name": "created_at", "type": "TIMESTAMP"}
-                        ]
-                    },
-                    {
-                        "schema": "public", 
-                        "name": "orders", 
-                        "primary_key": "id",
-                        "columns": [
-                            {"name": "id", "type": "INTEGER", "primary_key": True},
-                            {"name": "user_id", "type": "INTEGER"},
-                            {"name": "amount", "type": "DECIMAL"},
-                            {"name": "status", "type": "VARCHAR"},
-                            {"name": "order_date", "type": "TIMESTAMP"}
-                        ]
-                    }
-                ]
-                for table in tables_data:
-                    table["recommendation"] = {
-                        "mode": "cdc" if table.get("primary_key") else "incremental",
-                        "reason": "Primary key identified" if table.get("primary_key") else "No PK; falling back to incremental"
-                    }
-                return {"results": tables_data}
-            return {"results": []}
-
         # Normalize config
         connection_id = config.get("connection_id") or config.get("id")
         password = config.get("password")
@@ -433,81 +353,18 @@ class ConnectionService:
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
             # Snowflake and others might need specialized logic for these targets,
             # but for Phase 1 we'll keep the specialized logic here but use the registry for class instantiation.
-            # We will move this logic into connectors in Phase 9.
+            # Move this logic into connectors in Phase 9 (Now!)
             connector = connector_class(normalized_config)
             
             if await connector.connect():
-                if connector_type == "postgresql":
-                    async with connector.pool.acquire() as conn:
-                        if target == "databases":
-                            rows = await conn.fetch("SELECT datname FROM pg_database WHERE datistemplate = false")
-                            results = [r['datname'] for r in rows]
-                        elif target == "schemas":
-                            rows = await conn.fetch("SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')")
-                            results = [r['schema_name'] for r in rows]
-                        elif target == "tables":
-                            schema = config.get("schema_name") or "public"
-                            rows = await conn.fetch("SELECT table_name FROM information_schema.tables WHERE table_schema = $1", schema)
-                            results = [r['table_name'] for r in rows]
-
-                elif connector_type == "mysql":
-                    cursor = connector.pool.get_connection().cursor()
-                    if target == "databases":
-                        cursor.execute("SHOW DATABASES")
-                        all_dbs = [r[0] for r in cursor.fetchall()]
-                        system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
-                        results = [db for db in all_dbs if db.lower() not in system_dbs]
-                        if not results: results = all_dbs
-                    elif target == "schemas":
-                        db = config.get("database_name") or config.get("database")
-                        results = [db] if db else []
-                    elif target == "tables":
-                        db = config.get("schema_name") or config.get("database_name") or config.get("database")
-                        if db:
-                            # Use backticks for MySQL identifiers
-                            clean_db = db.replace("`", "``")
-                            cursor.execute(f"SHOW TABLES FROM `{clean_db}`")
-                            results = [r[0] for r in cursor.fetchall()]
-                    cursor.close()
-
-                elif connector_type in ("mssql", "sqlserver"):
-                    cursor = connector.conn.cursor()
-                    if target == "databases":
-                        cursor.execute("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')")
-                        results = [r[0] for r in cursor.fetchall()]
-                    elif target == "schemas":
-                        cursor.execute("SELECT name FROM sys.schemas WHERE name NOT IN ('sys', 'information_schema')")
-                        results = [r[0] for r in cursor.fetchall()]
-                    elif target == "tables":
-                        schema = config.get("schema_name") or "dbo"
-                        cursor.execute("SELECT name FROM sys.tables WHERE schema_name(schema_id) = ?", schema)
-                        results = [r[0] for r in cursor.fetchall()]
-                    cursor.close()
-
-                elif connector_type == "snowflake":
-                    cursor = connector.conn.cursor()
-                    if target == "warehouses":
-                        cursor.execute("SHOW WAREHOUSES")
-                        results = [r[0] for r in cursor.fetchall()]
-                    elif target == "databases":
-                        cursor.execute("SHOW DATABASES")
-                        results = [r[1] for r in cursor.fetchall()]
-                    elif target == "schemas":
-                        db = config.get("database_name") or config.get("database")
-                        if db:
-                            cursor.execute(f'SHOW SCHEMAS IN DATABASE "{db}"')
-                            results = [r[1] for r in cursor.fetchall()]
-                    elif target == "tables":
-                        db = config.get("database_name") or config.get("database")
-                        schema = config.get("schema_name") or config.get("schema")
-                        if db and schema:
-                            cursor.execute(f'SHOW TABLES IN SCHEMA "{db}"."{schema}"')
-                            results = [r[1] for r in cursor.fetchall()]
-                    cursor.close()
-
+                database_name = config.get("database_name")
+                results = await connector.discover_resources(target, database_name=database_name)
                 await connector.disconnect()
+
+            
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
 
         except Exception as e:
             print(f"Discovery error for {connector_type} target {target}: {e}")
@@ -516,7 +373,18 @@ class ConnectionService:
                 except: pass
             raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
             
-        return {"results": sorted(results) if results else []}
+        # Sort results safely (handles both strings and dicts with 'name' key)
+        if results:
+            try:
+                if isinstance(results[0], dict):
+                    results.sort(key=lambda x: str(x.get("name", "")))
+                else:
+                    results.sort()
+            except Exception:
+                pass
+
+        return {"results": results or []}
+
 
     async def preview_data(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Fetch a sample of data from a specific table."""

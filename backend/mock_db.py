@@ -9,7 +9,11 @@ from typing import Dict, Any, List, Optional
 # ---------------------------------------------------------------------------
 # File-backed shared store for mock mode
 # ---------------------------------------------------------------------------
-MOCK_FILE = os.path.join(os.path.dirname(__file__), "mock_store.json")
+if os.environ.get("USE_TEST_MOCK_FILE") == "true":
+    MOCK_FILE = os.path.join(os.path.dirname(__file__), "test_mock_store.json")
+else:
+    MOCK_FILE = os.path.join(os.path.dirname(__file__), "mock_store.json")
+    
 _global_lock = asyncio.Lock()
 
 def _get_default_store():
@@ -34,7 +38,8 @@ def _get_default_store():
         "failed_jobs": [],
         "system_metrics": [],
         "pipeline_checkpoints": [],
-        "astra_worker_queue": []
+        "astra_worker_queue": [],
+        "pipeline_logs": []
     }
 
 def _load_store():
@@ -53,13 +58,49 @@ def _load_store():
         print(f"ERROR: Mock DB failed to load store: {e}")
         return _get_default_store()
 
+class UUIDEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        return super().default(obj)
+
+import shutil
+
 def _save_store(store):
+    """Saves store atomically by writing to temp file first, with backup."""
+    tmp_file = f"{MOCK_FILE}.tmp"
+    bak_file = f"{MOCK_FILE}.bak"
     try:
-        f = open(MOCK_FILE, "w")
-        json.dump(store, f, indent=2)
-        f.close()
+        # 1. Write to temp file
+        with open(tmp_file, "w") as f:
+            # Use default=str as a catch-all, but we could also use custom encoder
+            json.dump(store, f, indent=2, default=str)
+        
+        # 2. Create backup of current store if it exists
+        if os.path.exists(MOCK_FILE):
+            try:
+                shutil.copy2(MOCK_FILE, bak_file)
+            except Exception as bak_err:
+                print(f"WARNING: Mock DB failed to create backup: {bak_err}")
+
+        # 3. Rename to final file (atomic on most OS)
+        if os.path.exists(MOCK_FILE):
+             os.replace(tmp_file, MOCK_FILE)
+        else:
+             os.rename(tmp_file, MOCK_FILE)
+             
     except Exception as e:
-        print(f"ERROR: Mock DB failed to save store: {e}")
+        import traceback
+        log_path = os.path.join(os.path.dirname(__file__), "mock_db_trace.log")
+        with open(log_path, "a") as errf:
+            errf.write(f"ERROR: [{datetime.utcnow().isoformat()}] Mock DB failed to save store: {e}\n")
+            errf.write(traceback.format_exc())
+            errf.write("\n")
+        # Ensure temp file is cleaned up on failure
+        if os.path.exists(tmp_file):
+            try: os.remove(tmp_file)
+            except: pass
+
 
 class MockCursor:
     def __init__(self, query, args, store):
@@ -94,6 +135,10 @@ class MockConnection:
                 rows = []
                 for c in store.get("connections", []):
                     row = c.copy()
+                    row.setdefault("status", "connected")
+                    row.setdefault("last_tested_at", row.get("updated_at") or datetime.utcnow().isoformat())
+                    if row.get("type") == "snowflake":
+                        row.setdefault("warehouse_name", "COMPUTE_WH")
                     row.setdefault("avg_latency_ms", 25.5)
                     row.setdefault("avg_query_time_ms", 12.0)
                     row.setdefault("requests_per_minute", 150)
@@ -148,6 +193,13 @@ class MockConnection:
                         r.setdefault("name", r["task_name"])
                     return runs
 
+            # --- worker jobs from astra_worker_queue ---
+            if "from astra_worker_queue" in query_lower:
+                if "where run_id =" in query_lower:
+                    rid = str(args[0])
+                    jobs = [j.copy() for j in store.get("astra_worker_queue", []) if str(j.get("run_id")) == rid]
+                    return jobs
+
             # --- worker_heartbeats ---
             if "from worker_heartbeats" in query_lower:
                 rows = store.get("worker_heartbeats", [])
@@ -174,6 +226,27 @@ class MockConnection:
                             res.append({"id": job["id"], "run_id": job.get("run_id")})
                     _save_store(store)
                     return res
+
+            # --- pipeline logs ---
+            if "from public.pipeline_logs" in query_lower or "from pipeline_logs" in query_lower:
+                rid = str(args[0])
+                logs = [l.copy() for l in store.get("pipeline_logs", []) if str(l.get("run_id")) == rid]
+                return logs
+
+            # --- audit logs ---
+            if "from audit_logs" in query_lower:
+                return store.get("audit_logs", [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "action": "pipeline_created",
+                        "resource_type": "pipeline",
+                        "resource_id": str(args[0]) if args else str(uuid.uuid4()),
+                        "user_id": "admin-1234",
+                        "details": json.dumps({"note": "Simulated Audit Log"}),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+                ])
 
             return []
 
@@ -290,7 +363,8 @@ class MockConnection:
         async with _global_lock:
             store = _load_store()
             query_lower = query.lower().strip()
-            # print(f"Mock DB: fetchval -> {query_lower[:80]}")
+            with open("mock_db_trace.log", "a") as f:
+                f.write(f"fetchval: {query_lower[:80]}\n")
 
             # --- SUM(row_count) for pipeline_runs ---
             if "select sum(row_count) from public.staging_files" in query_lower:
@@ -362,9 +436,28 @@ class MockConnection:
                     "username": args[5],
                     "ssl_enabled": args[6],
                     "security_level": args[7],
-                    "created_at": datetime.utcnow().isoformat()
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
                 }
                 store["connections"].append(row)
+                _save_store(store)
+                return new_id
+
+            # --- INSERT INTO pipelines ---
+            if "insert into pipelines" in query_lower:
+                new_id = str(uuid.uuid4())
+                print(f"DEBUG mock_db fetchval pipelen insert: query={query}, args={args}")
+                row = {
+                    "id": new_id,
+                    "name": args[0],
+                    "status": args[1],
+                    "environment": args[2],
+                    "description": args[3],
+                    "execution_mode": args[4] if len(args) > 4 else "linear",
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                store["pipelines"].append(row)
                 _save_store(store)
                 return new_id
 
@@ -376,15 +469,20 @@ class MockConnection:
 
             # Default fallthrough for inserts returning ID
             if "insert into" in query_lower and "returning" in query_lower:
-                 return str(uuid.uuid4())
+                 new_fall = str(uuid.uuid4())
+                 print(f"DEBUG fallback fetchval hit for: {query_lower}")
+                 return new_fall
                  
+            print(f"DEBUG fetchval returning None for: {query_lower}")
             return None
+
 
     async def execute(self, query, *args):
         async with _global_lock:
             store = _load_store()
             query_lower = query.lower().strip()
-            # print(f"Mock DB: execute -> {query_lower[:80]}")
+            with open("mock_db_trace.log", "a") as f:
+                f.write(f"execute: {query_lower[:80]}\n")
             
             if "delete from public.pipeline_tasks" in query_lower:
                 pid = str(args[0])
@@ -442,8 +540,22 @@ class MockConnection:
 
             if "update pipelines set" in query_lower:
                 pid = str(args[0])
+                # args usually follow the order in PipelineService.update_pipeline: (p_uuid, *params)
+                # But here we need to be careful with how the service builds the query.
+                # Actually, PipelineService builds it dynamically. 
+                # Let's simplify and just match the ID and assume updated_at is enough for now, 
+                # OR we look at the query to extract values.
+                # Since mock_db is a bit fragile with dynamic queries, let's try to be cleverer.
+                
                 for p in store.get("pipelines", []):
                     if str(p.get("id")) == pid:
+                        # Find indices from query: "SET name = $2, description = $3, ... WHERE id = $1"
+                        import re
+                        param_matches = re.findall(r"(\w+) = \$(\d+)", query_lower)
+                        for field, idx in param_matches:
+                            val_idx = int(idx) - 1 # args is 0-indexed, $1 is args[0]
+                            if val_idx < len(args):
+                                p[field] = args[val_idx]
                         p["updated_at"] = datetime.utcnow().isoformat()
                 _save_store(store)
                 return "UPDATE"
@@ -452,8 +564,8 @@ class MockConnection:
                 row = {
                     "id": str(uuid.uuid4()),
                     "pipeline_id": str(args[0]),
-                    "task_name": args[1],
-                    "task_type": args[2],
+                    "task_name": str(args[1]),
+                    "task_type": str(args[2]),
                     "config_json": args[3]
                 }
                 store["pipeline_tasks"].append(row)
@@ -471,19 +583,19 @@ class MockConnection:
                 return "INSERT"
 
             if "insert into pipeline_nodes" in query_lower:
-                 row = {
-                     "id": str(args[0]),
-                     "pipeline_id": str(args[1]),
-                     "node_type": args[2],
-                     "label": args[3],
-                     "config_json": args[4],
-                     "position_x": args[5],
-                     "position_y": args[6],
-                     "order_index": args[7]
-                 }
-                 store["pipeline_nodes"].append(row)
-                 _save_store(store)
-                 return "INSERT"
+                row = {
+                    "id": str(args[0]),
+                    "pipeline_id": str(args[1]),
+                    "node_type": args[2],
+                    "label": args[3],
+                    "config_json": args[4],
+                    "position_x": args[5],
+                    "position_y": args[6],
+                    "order_index": args[7]
+                }
+                store["pipeline_nodes"].append(row)
+                _save_store(store)
+                return "INSERT"
 
             if "insert into pipeline_edges" in query_lower:
                  row = {
@@ -803,6 +915,18 @@ class MockConnection:
                         job["completed_at"] = datetime.utcnow().isoformat()
                 _save_store(store)
                 return "UPDATE"
+
+            if "insert into public.pipeline_versions" in query_lower:
+                row = {
+                    "id": str(uuid.uuid4()),
+                    "pipeline_id": str(args[0]),
+                    "version_number": args[1],
+                    "dag_json": args[2],
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                store.setdefault("pipeline_versions", []).append(row)
+                _save_store(store)
+                return "INSERT"
 
             if "insert into public.pipeline_partitions" in query_lower:
                 row = {

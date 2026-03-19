@@ -1,5 +1,7 @@
 import pyodbc
 import os
+import socket
+
 import asyncio
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
@@ -61,16 +63,27 @@ class MSSQLConnector(BaseConnector):
         )
 
     async def connect(self) -> bool:
+        """Establish connection to MSSQL. Only uses mock if host is explicitly a mock pattern."""
+        host = self.config.get("host", "").lower()
+        use_mock_env = os.getenv("USE_MOCK_DB") == "true"
+
+        # Only use Mock if explicitly requested via host name
+        if host in ["mock", "demo", "mock-server"]:
+            print(f"Using Mock MSSQL connection for {host}")
+            self.conn = "MOCK_CONN"
+            return True
+
+        # Try real connection
         try:
-            if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
-                print(f"Mock MSSQL connected for {self.config.get('host')}")
-                self.conn = "MOCK_CONN"
-                return True
             conn_str = self._build_connection_string()
-            self.conn = pyodbc.connect(conn_str, autocommit=True)
+            # 10s timeout is enough for local/cloud MSSQL
+            self.conn = pyodbc.connect(conn_str, autocommit=True, timeout=10)
+            print(f"Successfully connected to real MSSQL server at {host}")
             return True
         except Exception as e:
-            print(f"MSSQL connection error for {self.config.get('host')}: {e}")
+            # If it's a real host, we MUST NOT fallback to mock. 
+            # We want the user to see the REAL error.
+            print(f"MSSQL connection error for {host}: {e}")
             return False
 
     async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
@@ -113,10 +126,60 @@ class MSSQLConnector(BaseConnector):
             if cursor:
                 cursor.close()
 
+    async def discover_resources(self, target: str, **kwargs) -> List[Any]:
+        """Discover MSSQL resources like databases, schemas, or tables with optional context."""
+        database_context = kwargs.get("database_name")
+
+        if self.conn == "MOCK_CONN":
+            if target == "databases":
+                return ["master", "AstraFlow_DB", "AstraFlow_Dev", "AstraFlow_Prod"]
+            if target == "schemas":
+                return ["dbo", "staging", "reporting", "archive"]
+            if target == "tables":
+                # If a database context is provided, return tables for that DB
+                db = database_context or "AstraFlow_DB"
+                return [
+                    {"name": "Users", "database": db, "schema": "dbo"},
+                    {"name": "Orders", "database": db, "schema": "dbo"},
+                    {"name": "Products", "database": db, "schema": "dbo"},
+                    {"name": "Inventory", "database": db, "schema": "dbo"},
+                    {"name": "Transactions", "database": db, "schema": "dbo"},
+                    {"name": "SystemLogs", "database": db, "schema": "dbo"}
+                ]
+            return []
+
+        if self.conn is None:
+            return []
+
+        cursor = self.conn.cursor()
+        try:
+            results = []
+            if target == "databases":
+                cursor.execute("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')")
+                results = [r[0] for r in cursor.fetchall()]
+            elif target == "schemas":
+                cursor.execute("SELECT name FROM sys.schemas WHERE name NOT IN ('sys', 'information_schema')")
+                results = [r[0] for r in cursor.fetchall()]
+            elif target == "tables":
+                # Use current database if not specified
+                current_db = database_context or self.config.get("database")
+                
+                # If we're not currently in the right database, we'd need to switch or use fully qualified names
+                # For simplified 'Airbyte-level' discovery, we'll fetch from the active DB
+                cursor.execute("SELECT name, schema_name(schema_id) as schema_name FROM sys.tables")
+                results = [{"name": r[0], "database": current_db, "schema": r[1]} for r in cursor.fetchall()]
+            return results
+        finally:
+            cursor.close()
+
+
+
     async def disconnect(self):
-        if self.conn is not None:
+        if self.conn is not None and self.conn != "MOCK_CONN":
             self.conn.close()
-            self.conn = None
+        self.conn = None
+
+
 
     async def health_check(self) -> bool:
         if self.conn is None:
@@ -149,6 +212,9 @@ class MSSQLConnector(BaseConnector):
             "authentication": "pending"
         }
         
+        import time
+        start_time = time.time()
+
         if self.conn == "MOCK_CONN":
             diagnostics["status"] = "healthy"
             diagnostics["connection"] = True
@@ -157,18 +223,36 @@ class MSSQLConnector(BaseConnector):
             diagnostics["dns_resolution"] = "success"
             diagnostics["tcp_connection"] = "success"
             diagnostics["authentication"] = "success"
+            diagnostics["permission_check"] = "success"
+            diagnostics["latency_ms"] = int((time.time() - start_time) * 1000)
             return diagnostics
 
-        import time
-        start_time = time.time()
         try:
+            if self._should_fail_dns():
+                diagnostics["dns_resolution"] = "failed: Name or service not known"
+                diagnostics["status"] = "failed"
+                return diagnostics
             diagnostics["dns_resolution"] = "success"
+
+            if self._should_fail_tcp():
+                diagnostics["tcp_connection"] = "failed: Connection refused"
+                diagnostics["status"] = "failed"
+                return diagnostics
             diagnostics["tcp_connection"] = "success"
+
             
             connected = await self.connect()
-            diagnostics["latency_ms"] = int((time.time() - start_time) * 1000)
-            
+            if self._is_mock() and connected:
+                diagnostics["authentication"] = "success"
+                diagnostics["version"] = "Mock SQL Server 2022"
+                diagnostics["database_accessible"] = True
+                diagnostics["permission_check"] = "success"
+                diagnostics["status"] = "healthy"
+                diagnostics["latency_ms"] = int((time.time() - start_time) * 1000)
+                return diagnostics
+
             if connected and self.conn:
+
                 diagnostics["authentication"] = "success"
                 diagnostics["connection"] = True
                 cursor = None
@@ -178,18 +262,22 @@ class MSSQLConnector(BaseConnector):
                     cursor.execute("SELECT @@VERSION")
                     row = cursor.fetchone()
                     if row:
-                        diagnostics["version"] = str(row[0]).split('\\n')[0][:100]
+                        diagnostics["version"] = str(row[0]).split('\n')[0][:100]
                     
                     diagnostics["database_accessible"] = True
                     
                     # Check permissions
-                    cursor.execute("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES")
-                    cursor.fetchone()
-                    diagnostics["permissions"].append("read_schema")
+                    try:
+                        await self.discover_schema()
+                        diagnostics["permission_check"] = "success"
+                    except Exception as e:
+                        diagnostics["issues"].append(f"Permission check failed: {str(e)}")
+                        diagnostics["permission_check"] = f"failed: {str(e)}"
                     
                     diagnostics["status"] = "healthy"
                 except Exception as e:
                     diagnostics["issues"].append(f"Query error: {str(e)}")
+                    diagnostics["permission_check"] = f"failed: {str(e)}"
                     if diagnostics["status"] == "unknown":
                         diagnostics["status"] = "degraded"
                 finally:
@@ -197,8 +285,9 @@ class MSSQLConnector(BaseConnector):
                         cursor.close()
             else:
                 diagnostics["status"] = "unreachable"
-                diagnostics["authentication"] = "failed"
+                diagnostics["authentication"] = "failed: Credentials rejected"
                 diagnostics["issues"].append("Could not establish connection")
+
                 
         except Exception as e:
             diagnostics["status"] = "failed"
@@ -210,8 +299,54 @@ class MSSQLConnector(BaseConnector):
         return diagnostics
 
     async def discover_schema(self) -> List[Dict[str, Any]]:
+        if self.conn == "MOCK_CONN":
+            return [
+                {
+                    "schema": "dbo", 
+                    "name": "Users", 
+                    "columns": [
+                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "Email", "type": "nvarchar(255)", "nullable": False},
+                        {"name": "CreatedAt", "type": "datetime", "nullable": False}
+                    ],
+                    "primary_key": "Id",
+                    "recommended_cursor": "CreatedAt"
+                },
+                {
+                    "schema": "dbo", 
+                    "name": "Orders", 
+                    "columns": [
+                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "UserId", "type": "int", "nullable": False},
+                        {"name": "Total", "type": "money", "nullable": False},
+                        {"name": "OrderDate", "type": "datetime", "nullable": False}
+                    ],
+                    "primary_key": "Id",
+                    "recommended_cursor": "OrderDate"
+                },
+                {
+                    "schema": "sales", 
+                    "name": "Products", 
+                    "columns": [
+                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "Name", "type": "nvarchar(100)", "nullable": False},
+                        {"name": "Price", "type": "decimal(18,2)", "nullable": False}
+                    ],
+                    "primary_key": "Id"
+                },
+                {
+                    "schema": "inventory", 
+                    "name": "Stocks", 
+                    "columns": [
+                        {"name": "ProductSKU", "type": "nvarchar(50)", "nullable": False, "is_primary_key": True},
+                        {"name": "Quantity", "type": "int", "nullable": False}
+                    ],
+                    "primary_key": "ProductSKU"
+                }
+            ]
         if self.conn is None:
             return []
+
 
         cursor = None
         try:

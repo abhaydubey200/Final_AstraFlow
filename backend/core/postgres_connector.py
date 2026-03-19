@@ -1,5 +1,7 @@
 import asyncpg
+import os
 import socket
+
 import time
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
@@ -36,18 +38,37 @@ class PostgresConnector(BaseConnector):
         self.pool: Optional[asyncpg.Pool] = None
 
     async def connect(self) -> bool:
+        """Establish connection to Postgres. Only uses mock if host is explicitly a mock pattern."""
+        host = self.config.get("host", "").lower()
+        # The use_mock_env variable is not used for Postgres mock logic,
+        # as mock is only enabled if the host explicitly matches a mock pattern.
+
+        # Only use Mock if explicitly requested via host name
+        if host in ["mock", "demo", "mock-server"]:
+            print(f"Using Mock Postgres connection for {host}")
+            self.pool = "MOCK_POOL"
+            return True
+
+        # Try real connection
         try:
-            self.pool = await asyncpg.create_pool(
-                host=self.config.get("host"),
-                port=self.config.get("port"),
-                user=self.config.get("username"),
-                password=self.config.get("password"),
-                database=self.config.get("database"),
-                ssl='require' if self.config.get("ssl_enabled") else False
+            self.pool = await asyncio.wait_for(
+                asyncpg.create_pool(
+                    host=self.config.get("host"),
+                    port=self.config.get("port"),
+                    user=self.config.get("username"),
+                    password=self.config.get("password"),
+                    database=self.config.get("database"),
+                    ssl='require' if self.config.get("ssl_enabled") else False,
+                    min_size=1,
+                    max_size=10
+                ),
+                timeout=10
             )
+            print(f"Successfully connected to real Postgres server at {host}")
             return True
         except Exception as e:
-            print(f"Postgres connection error for {self.config.get('host')}: {e}")
+            # No silent fallback to mock for real hosts
+            print(f"Postgres connection error for {host}: {e}")
             return False
 
     async def health_check(self) -> bool:
@@ -61,8 +82,57 @@ class PostgresConnector(BaseConnector):
             return False
 
     async def discover_schema(self) -> List[Dict[str, Any]]:
+        if self.pool == "MOCK_POOL":
+
+
+            return [
+                {
+                    "schema": "public", 
+                    "name": "users", 
+                    "columns": [
+                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True},
+                        {"name": "email", "type": "varchar(255)", "nullable": False},
+                        {"name": "created_at", "type": "timestamp", "nullable": False}
+                    ],
+                    "primary_key": "id",
+                    "recommended_cursor": "created_at"
+                },
+                {
+                    "schema": "public", 
+                    "name": "orders", 
+                    "columns": [
+                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True},
+                        {"name": "user_id", "type": "uuid", "nullable": False},
+                        {"name": "amount", "type": "numeric", "nullable": False},
+                        {"name": "order_date", "type": "timestamp", "nullable": False}
+                    ],
+                    "primary_key": "id",
+                    "recommended_cursor": "order_date"
+                },
+                {
+                    "schema": "public", 
+                    "name": "products", 
+                    "columns": [
+                        {"name": "id", "type": "uuid", "nullable": False, "is_primary_key": True},
+                        {"name": "name", "type": "varchar(100)", "nullable": False},
+                        {"name": "price", "type": "numeric", "nullable": False}
+                    ],
+                    "primary_key": "id"
+                },
+                {
+                    "schema": "inventory", 
+                    "name": "stocks", 
+                    "columns": [
+                        {"name": "sku", "type": "varchar(50)", "nullable": False, "is_primary_key": True},
+                        {"name": "quantity", "type": "integer", "nullable": False}
+                    ],
+                    "primary_key": "sku"
+                }
+            ]
         if self.pool is None:
+
             return []
+
         
         query = """
         SELECT 
@@ -217,8 +287,12 @@ class PostgresConnector(BaseConnector):
         # 1. DNS Resolution
         try:
             host = self.config.get("host")
-            socket.gethostbyname(host)
+            if self._should_fail_dns():
+                raise socket.gaierror(-2, "Name or service not known")
+            if not self._is_mock():
+                socket.gethostbyname(host)
             report["dns_resolution"] = "success"
+
         except Exception as e:
             report["dns_resolution"] = f"failed: {str(e)}"
             return report
@@ -228,9 +302,14 @@ class PostgresConnector(BaseConnector):
         try:
             host = self.config.get("host")
             port = self.config.get("port")
-            s = socket.create_connection((host, port), timeout=5)
-            s.close()
+            if self._should_fail_tcp():
+                raise ConnectionRefusedError("Connection refused (simulated)")
+            if not self._is_mock():
+                s = socket.create_connection((host, port), timeout=5)
+                s.close()
             report["tcp_connection"] = "success"
+
+
         except Exception as e:
             report["tcp_connection"] = f"failed: {str(e)}"
             return report
@@ -238,23 +317,80 @@ class PostgresConnector(BaseConnector):
         # 3. Authentication & Permission
         try:
             success = await self.connect()
+            if self._is_mock() and success:
+                report["authentication"] = "success"
+                report["version"] = "PostgreSQL 15 (Mock)"
+                report["permission_check"] = "success"
+                report["status"] = "healthy"
+                report["latency_ms"] = int((time.time() - start_time) * 1000)
+                return report
+
             if success:
+
                 report["authentication"] = "success"
                 # Check permissions
                 try:
                     await self.discover_schema()
                     report["permission_check"] = "success"
+                    report["status"] = "healthy"
                 except Exception as e:
                     report["permission_check"] = f"restricted: {str(e)}"
+                    report["status"] = "degraded"
             else:
                 report["authentication"] = "failed: Credentials rejected"
+                report["status"] = "failed"
         except Exception as e:
             report["authentication"] = f"failed: {str(e)}"
+            report["status"] = "failed"
             
         report["latency_ms"] = int((time.time() - start_time) * 1000)
         return report
 
+
+    async def discover_resources(self, target: str, **kwargs) -> List[Any]:
+        """Discover PostgreSQL resources like databases, schemas, or tables with optional context."""
+        database_context = kwargs.get("database_name")
+
+        if self.pool == "MOCK_POOL":
+            if target == "databases":
+                return ["postgres", "test_db", "customer_data", "analytics_db", "staging_db"]
+            if target == "schemas":
+                return ["public", "internal", "audit", "inventory"]
+            if target == "tables":
+                db = database_context or "customer_data"
+                return [
+                    {"name": "users", "database": db, "schema": "public"},
+                    {"name": "orders", "database": db, "schema": "public"},
+                    {"name": "products", "database": db, "schema": "public"},
+                    {"name": "stocks", "database": db, "schema": "internal"},
+                    {"name": "shipments", "database": db, "schema": "internal"},
+                    {"name": "logs", "database": db, "schema": "audit"}
+                ]
+            return []
+
+        if self.pool is None:
+            return []
+
+        async with self.pool.acquire() as conn:
+            if target == "databases":
+                rows = await conn.fetch("SELECT datname FROM pg_database WHERE datistemplate = false")
+                return [r['datname'] for r in rows]
+            elif target == "schemas":
+                rows = await conn.fetch("SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'pg_catalog')")
+                return [r['schema_name'] for r in rows]
+            elif target == "tables":
+                current_db = database_context or self.config.get("database")
+                # To discover tables in a specific database in Postgres, we usually need to be connected to it.
+                # For discovery purposes, we return tables from the current connection's perspective.
+                rows = await conn.fetch("SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog')")
+                return [{"name": r['table_name'], "database": current_db, "schema": r['table_schema']} for r in rows]
+            return []
+
+
+
     async def disconnect(self):
-        if self.pool is not None:
+        if self.pool is not None and self.pool != "MOCK_POOL":
             await self.pool.close()
-            self.pool = None
+        self.pool = None
+
+

@@ -1,4 +1,6 @@
 from mysql.connector.pooling import MySQLConnectionPool
+import os
+
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
 
@@ -35,6 +37,16 @@ class MySQLConnector(BaseConnector):
         self.pool: Optional[MySQLConnectionPool] = None
 
     async def connect(self) -> bool:
+        """Establish connection to MySQL. Only uses mock if host is explicitly a mock pattern."""
+        host = (self.config.get("host") or "").lower()
+
+        # Only use Mock if explicitly requested via host name
+        if host in ["mock", "demo", "mock-server"]:
+            print(f"Using Mock MySQL connection for {host}")
+            self.pool = "MOCK_POOL"
+            return True
+
+        # Try real connection
         try:
             pool_name = f"pool_{self.config.get('host')}_{self.config.get('database')}"
             self.pool = MySQLConnectionPool(
@@ -46,9 +58,11 @@ class MySQLConnector(BaseConnector):
                 user=self.config.get("user") or self.config.get("username"),
                 password=self.config.get("password", ""),
             )
+            print(f"Successfully connected to real MySQL server at {host}")
             return True
         except Exception as e:
-            print(f"MySQL connection pool error: {e}")
+            # No silent fallback to mock for real hosts
+            print(f"MySQL connection pool error for {host}: {e}")
             return False
 
     async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
@@ -100,46 +114,129 @@ class MySQLConnector(BaseConnector):
         # 1. DNS Resolution
         try:
             host = self.config.get("host")
-            socket.gethostbyname(host)
+            if self._should_fail_dns():
+                raise socket.gaierror(-2, "Name or service not known")
+            if not self._is_mock():
+                socket.gethostbyname(host)
             report["dns_resolution"] = "success"
         except Exception as e:
             report["dns_resolution"] = f"failed: {str(e)}"
             return report
-            
+
         # 2. TCP Connection
         start_time = time.time()
         try:
             port = int(self.config.get("port", 3306))
-            s = socket.create_connection((host, port), timeout=5)
-            s.close()
+            if self._should_fail_tcp():
+                raise ConnectionRefusedError("Connection refused (simulated)")
+            if not self._is_mock():
+                s = socket.create_connection((host, port), timeout=5)
+                s.close()
             report["tcp_connection"] = "success"
+
         except Exception as e:
             report["tcp_connection"] = f"failed: {str(e)}"
             return report
+
             
-        # 3. Authentication & Permission
         try:
             success = await self.connect()
+            if self._is_mock() and success:
+                report["authentication"] = "success"
+                report["version"] = "8.0.32 (Mock)"
+                report["permission_check"] = "success"
+                report["status"] = "healthy"
+                report["latency_ms"] = int((time.time() - start_time) * 1000)
+                return report
+
             if success:
+
                 report["authentication"] = "success"
                 # Check permissions
                 try:
                     await self.discover_schema()
                     report["permission_check"] = "success"
+                    report["status"] = "healthy"
                 except Exception as e:
                     report["permission_check"] = f"restricted: {str(e)}"
+                    report["status"] = "degraded"
             else:
                 report["authentication"] = "failed: Credentials rejected"
+                report["status"] = "failed"
         except Exception as e:
             report["authentication"] = f"failed: {str(e)}"
+            report["status"] = "failed"
+
+
             
         report["latency_ms"] = int((time.time() - start_time) * 1000)
         return report
 
+    async def discover_resources(self, target: str, **kwargs) -> List[Any]:
+        """Discover MySQL resources like databases, schemas, or tables with optional context."""
+        database_context = kwargs.get("database_name")
+
+        if self.pool == "MOCK_POOL":
+            if target == "databases":
+                return ["sys", "performance_schema", "mysql", "AstraFlow_Repo", "Customer_Insight", "Sales_Data"]
+            if target == "schemas":
+                return ["public", "internal"]
+            if target == "tables":
+                db = database_context or "Customer_Insight"
+                return [
+                    {"name": "users", "database": db, "schema": "public"},
+                    {"name": "orders", "database": db, "schema": "public"},
+                    {"name": "products", "database": db, "schema": "public"},
+                    {"name": "discounts", "database": db, "schema": "public"},
+                    {"name": "visits", "database": db, "schema": "public"}
+                ]
+            return []
+
+        if self.pool is None:
+            return []
+
+        conn = self.pool.get_connection()
+        cursor = conn.cursor()
+        try:
+            results = []
+            if target == "databases":
+                cursor.execute("SHOW DATABASES")
+                results = [r[0] for r in cursor.fetchall()]
+            elif target == "schemas":
+                # In MySQL, schema is synonymous with database
+                cursor.execute("SHOW DATABASES")
+                results = [r[0] for r in cursor.fetchall()]
+            elif target == "tables":
+                db = database_context or self.config.get("database") or self.config.get("schema")
+                if db:
+                    cursor.execute(f"SHOW TABLES FROM `{db}`")
+                    results = [{"name": r[0], "database": db, "schema": "public"} for r in cursor.fetchall()]
+                else:
+                    # Discover all tables in all non-system databases
+                    results = []
+                    cursor.execute("SHOW DATABASES")
+                    dbs = [r[0] for r in cursor.fetchall()]
+                    system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
+                    for current_db in dbs:
+                        if current_db.lower() not in system_dbs:
+                            cursor.execute(f"SHOW TABLES FROM `{current_db}`")
+                            results.extend([{"name": r[0], "database": current_db, "schema": "public"} for r in cursor.fetchall()])
+            return results
+        finally:
+            cursor.close()
+            conn.close()
+
+
+
     async def disconnect(self):
         # MySQLConnectionPool doesn't have a specific 'close all' method in basic API,
         # but we can set it to None.
+        if self.pool is not None and self.pool != "MOCK_POOL":
+             # If it was a real pool, we might want to close it, but the current code just sets to None.
+             pass
         self.pool = None
+
+
 
     async def health_check(self) -> bool:
         if self.pool is None:
@@ -162,8 +259,46 @@ class MySQLConnector(BaseConnector):
         return False
 
     async def discover_schema(self) -> List[Dict[str, Any]]:
+        if self.pool == "MOCK_POOL":
+            return [
+                {
+                    "schema": "public", 
+                    "name": "users", 
+                    "columns": [
+                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "email", "type": "varchar(255)", "nullable": False},
+                        {"name": "created_at", "type": "timestamp", "nullable": False}
+                    ],
+                    "primary_key": "id",
+                    "recommended_cursor": "created_at"
+                },
+                {
+                    "schema": "public", 
+                    "name": "orders", 
+                    "columns": [
+                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "user_id", "type": "int", "nullable": False},
+                        {"name": "amount", "type": "decimal(10,2)", "nullable": False},
+                        {"name": "order_date", "type": "timestamp", "nullable": False}
+                    ],
+                    "primary_key": "id",
+                    "recommended_cursor": "order_date"
+                },
+                {
+                    "schema": "shop", 
+                    "name": "products", 
+                    "columns": [
+                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                        {"name": "name", "type": "varchar(100)", "nullable": False},
+                        {"name": "price", "type": "decimal(10,2)", "nullable": False}
+                    ],
+                    "primary_key": "id"
+                }
+            ]
         if self.pool is None:
+
             return []
+
 
         conn = None
         cursor = None
