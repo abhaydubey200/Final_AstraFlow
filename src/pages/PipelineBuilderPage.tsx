@@ -19,11 +19,11 @@ const PipelineBuilderPage = () => {
   // Map DB nodes/edges to builder format
   const initialNodes = pipeline?.pipeline_nodes?.map((n) => ({
     id: n.id,
-    type: n.node_type as any,
+    type: n.node_type,
     label: n.label,
     x: n.position_x,
     y: n.position_y,
-    config: (n.config_json as Record<string, string>) || {},
+    config: (n.config_json as Record<string, unknown>) || {},
   }));
 
   const initialEdges = pipeline?.pipeline_edges?.map((e) => ({

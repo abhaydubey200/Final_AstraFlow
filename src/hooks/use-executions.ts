@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 
-import type { PipelineRun, ExecutionLog, RunStatus, LogLevel } from "@/types/execution";
+import type { PipelineRun, ExecutionLog, LogLevel, RunStatus } from "@/types/pipeline";
 
 const RUNS_KEY = ["pipeline_runs"];
 
@@ -17,7 +17,7 @@ export function usePipelineRuns(filters?: RunFilters) {
   return useQuery<PipelineRun[]>({
     queryKey: [RUNS_KEY, filters],
     queryFn: async () => {
-      const queryFilters: Record<string, any> = {};
+      const queryFilters: Record<string, string> = {};
       if (filters?.pipelineId) queryFilters.pipeline_id = filters.pipelineId;
       if (filters?.status) queryFilters.status = filters.status;
       if (filters?.from) queryFilters.from = filters.from;
@@ -44,32 +44,55 @@ export function usePipelineRun(runId: string | undefined) {
 }
 
 
+export interface WorkerJob {
+  id: string;
+  pipeline_id: string;
+  run_id: string;
+  stage: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  progress?: number;
+  error?: string;
+  started_at?: string;
+  finished_at?: string;
+}
+
 export function useWorkerJobs(runId?: string) {
-  return useQuery({
+  return useQuery<WorkerJob[]>({
     queryKey: ["worker_jobs", runId],
     enabled: !!runId,
     queryFn: async () => {
-      return apiClient.get<any[]>(`/pipelines/runs/${runId}/worker-jobs`);
+      return apiClient.get<WorkerJob[]>(`/pipelines/runs/${runId}/worker-jobs`);
     },
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (data && data.some((r: any) => r.status === "pending" || r.status === "processing")) return 2000;
+      if (data && data.some((r) => r.status === "pending" || r.status === "processing")) return 2000;
       return false;
     },
   });
 }
 
+export interface RunTask {
+  id: string;
+  run_id: string;
+  node_id: string;
+  name: string;
+  status: RunStatus | "pending";
+  duration_ms?: number;
+  rows_processed?: number;
+  error?: string;
+}
+
 export function useRunTasks(runId?: string) {
-  return useQuery({
+  return useQuery<RunTask[]>({
     queryKey: ["run_tasks", runId],
     enabled: !!runId,
     queryFn: async () => {
-      return apiClient.get<any[]>(`/pipelines/runs/${runId}/tasks`);
+      return apiClient.get<RunTask[]>(`/pipelines/runs/${runId}/tasks`);
     },
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 2000;
-      if (data.some((t: any) => t.status === "pending" || t.status === "running")) return 2000;
+      if (data.some((t) => t.status === "pending" || t.status === "running")) return 2000;
       return false;
     },
   });
@@ -119,23 +142,40 @@ export function useTriggerRun() {
 }
 
 
+export interface SystemMetric {
+  totalRows: number;
+  rowsPerSec: number;
+  queuePending: number;
+  alertDelivered: number;
+  successRate: number;
+}
+
 export function useSystemMetrics(metricName?: string) {
-  return useQuery({
+  return useQuery<SystemMetric>({
     queryKey: ["system_metrics", metricName],
     queryFn: async () => {
-      const queryFilters: Record<string, any> = {};
+      const queryFilters: Record<string, string> = {};
       if (metricName) queryFilters.metric_name = metricName;
-      return apiClient.get<any[]>("/monitoring/metrics", queryFilters);
+      return apiClient.get<SystemMetric>("/monitoring/metrics", queryFilters);
     },
     refetchInterval: 5000
   });
 }
 
+export interface WorkerHeartbeat {
+  id: string;
+  status: string;
+  last_heartbeat: string;
+  tasks: number;
+  cpu: number;
+  ram: number;
+}
+
 export function useWorkerStatus() {
-  return useQuery<any[]>({
+  return useQuery<WorkerHeartbeat[]>({
     queryKey: ["worker_status"],
     queryFn: async () => {
-      return apiClient.get<any[]>("/monitoring/worker-status");
+      return apiClient.get<WorkerHeartbeat[]>("/monitoring/worker-status");
     },
     refetchInterval: 5000,
   });
@@ -145,7 +185,7 @@ export function useQueueMetrics() {
   return useQuery<{ pending: number, processing: number, failed: number, completed: number }>({
     queryKey: ["queue_metrics"],
     queryFn: async () => {
-      return apiClient.get<any>("/monitoring/queue-metrics");
+      return apiClient.get<{ pending: number, processing: number, failed: number, completed: number }>("/monitoring/queue-metrics");
     },
     refetchInterval: 5000,
   });

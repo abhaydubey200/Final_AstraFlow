@@ -8,11 +8,13 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
+from services.self_healing_service import self_healing_manager
+
 logger = logging.getLogger("astra-tracing")
 
 class HealingMonitor:
     """Monitoring layer that traces function execution and triggers self-healing on failure."""
-    def __init__(self, healing_manager=None):
+    def __init__(self, healing_manager=self_healing_manager):
         self.healing_manager = healing_manager
         self.active_traces = {}
 

@@ -14,11 +14,22 @@ class DatabaseManager:
 
     async def connect(self, min_size: int = 10, max_size: int = 50):
         """Initializes the connection pool."""
+        raw_mock = os.getenv("USE_MOCK_DB")
+        use_mock = str(raw_mock or "").strip().lower().strip('"\'').strip()
+        print(f"DEBUG_INFRA: USE_MOCK_DB raw='{raw_mock}', normalized='{use_mock}'")
+        if use_mock == "true":
+            if not self._pool:
+                import mock_db
+                self._pool = await mock_db.mock_pg.create_pool()
+                logger.info("Database connection pool initialized with MockDB")
+            return
+
         if not self.dsn:
             self.dsn = os.getenv("DATABASE_URL")
         
         if not self.dsn:
             raise ValueError("DATABASE_URL environment variable is required")
+        
         if not self._pool:
             try:
                 self._pool = await asyncpg.create_pool(

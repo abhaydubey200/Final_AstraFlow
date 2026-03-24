@@ -14,6 +14,7 @@ from services.partition_planner import PartitionPlanner
 from core.parquet_utils import ParquetUtils
 import uuid
 import os
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +31,23 @@ class TaskExecutor:
         self.circuit_open_until: Dict[str, float] = {}
 
     async def execute(self, task_type: str, config: Dict[str, Any], metadata: Dict[str, Any]):
-        """Routing method for task execution with Circuit Breaking."""
+        """Routing method for task execution with Persistent Circuit Breaking and Retries."""
         
-        # Check Circuit Breaker
-        now = time.time()
-        if task_type in self.circuit_open_until:
-            if now < self.circuit_open_until[task_type]:
-                wait_time = int(self.circuit_open_until[task_type] - now)
-                raise Exception(f"Circuit Breaker OPEN for {task_type}. Suspended for another {wait_time}s.")
-            else:
-                # Circuit closed (half-open state would be better, but this is simple hardening)
-                self.circuit_open_until.pop(task_type, None)
-                self.failure_counts[task_type] = 0
+        # 1. Check Circuit Breaker (DB-Backed)
+        async with self.pool.acquire() as conn:
+            breaker = await conn.fetchrow(
+                "SELECT open_until, failure_count FROM public.circuit_breakers WHERE task_type = $1",
+                task_type
+            )
+        
+        now = datetime.utcnow()
+        if breaker and breaker['open_until'] and breaker['open_until'] > now:
+            wait_time = int((breaker['open_until'] - now).total_seconds())
+            raise Exception(f"Circuit Breaker OPEN for {task_type}. Suspended for another {wait_time}s.")
 
         logger.info(f"Executing task type: {task_type}")
         
+        # 2. Single Execution Attempt (No internal loop)
         try:
             if task_type == 'EXTRACT':
                 await self._run_extract(config, metadata)
@@ -56,18 +59,64 @@ class TaskExecutor:
                 await self._run_validation(config, metadata)
             else:
                 logger.warning(f"Task type {task_type} is not yet implemented.")
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             
-            # Reset failures on success
-            self.failure_counts[task_type] = 0
+            # Success: Reset Circuit Breaker in DB
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO public.circuit_breakers (task_type, failure_count, open_until) VALUES ($1, 0, NULL) "
+                    "ON CONFLICT (task_type) DO UPDATE SET failure_count = 0, open_until = NULL",
+                    task_type
+                )
+            return # Exit on success
             
         except Exception as e:
-            # Track failure for circuit breaking
-            self.failure_counts[task_type] = self.failure_counts.get(task_type, 0) + 1
-            if self.failure_counts[task_type] >= 5:
-                # Open circuit for 5 minutes
-                self.circuit_open_until[task_type] = now + 300
-                logger.error(f"Circuit Breaker TRIPPED for {task_type} after 5 failures.")
+            logger.error(f"Task {task_type} failed: {e}")
+            
+            # Persistent Retry Logic
+            async with self.pool.acquire() as conn:
+                # 1. Get current retry count from task_runs
+                task_run_id = metadata.get('task_run_id')
+                if not task_run_id:
+                    raise e # Fallback if no task_run_id
+                    
+                row = await conn.fetchrow("SELECT retry_count FROM public.task_runs WHERE id = $1", uuid.UUID(str(task_run_id)))
+                retry_count = (row['retry_count'] if row else 0) + 1
+                max_retries = config.get('retries', 3)
+                
+                if retry_count <= max_retries:
+                    # Calculate Exponential Backoff
+                    base_delay = 2
+                    delay = base_delay * (2 ** (retry_count - 1))
+                    next_retry = datetime.utcnow() + timedelta(seconds=delay)
+                    
+                    logger.warning(f"Task {task_type} moving to RETRYING status (Attempt {retry_count}/{max_retries}). Next retry: {next_retry}")
+                    
+                    await conn.execute(
+                        "UPDATE public.task_runs SET status = 'retrying', retry_count = $1, next_retry_at = $2, error_message = $3, updated_at = NOW() WHERE id = $4",
+                        retry_count, next_retry, str(e), uuid.UUID(str(task_run_id))
+                    )
+                else:
+                    # Final Failure
+                    logger.error(f"Task {task_type} reached max retries ({max_retries}). Marking as FAILED.")
+                    await conn.execute(
+                        "UPDATE public.task_runs SET status = 'failed', error_message = $1, end_time = NOW(), updated_at = NOW() WHERE id = $2",
+                        str(e), uuid.UUID(str(task_run_id))
+                    )
+                    
+                    # Update Circuit Breaker in DB on final failure
+                    new_breaker_count = (breaker['failure_count'] if breaker else 0) + 1
+                    open_until = None
+                    if new_breaker_count >= 5:
+                        open_until = datetime.utcnow() + timedelta(minutes=5)
+                        logger.error(f"Circuit Breaker TRIPPED for {task_type} for 5 minutes.")
+                    
+                    await conn.execute(
+                        "INSERT INTO public.circuit_breakers (task_type, failure_count, open_until) VALUES ($1, $2, $3) "
+                        "ON CONFLICT (task_type) DO UPDATE SET failure_count = $2, open_until = $3",
+                        task_type, new_breaker_count, open_until
+                    )
+            
             raise e
 
     async def _get_connector(self, connection_id: Optional[str], config: Dict[str, Any]) -> Any:
@@ -76,8 +125,8 @@ class TaskExecutor:
             conn_data = await self.conn_service.get_connection(connection_id)
             if not conn_data:
                 raise Exception(f"Connection {connection_id} not found")
-            conn_type = conn_data.get('connection_type', '').upper()
-            conn_config = conn_data.get('config_json', {})
+            conn_type = (conn_data.get('type') or conn_data.get('connection_type') or '').upper()
+            conn_config = conn_data
         else:
             conn_type = config.get('connection_type', 'POSTGRES').upper()
             conn_config = config.get('source_config') or config
@@ -116,26 +165,59 @@ class TaskExecutor:
         await connector.connect()
         
         try:
-            # 1. Plan Partitions
+            # 1. Plan Partitions (Idempotent)
             partitions = await self.partition_planner.plan_partitions(str(run_id), config.get('source_config', {}), table_name, 'id')
             
             # 2. Parallelize partition processing
             semaphore = asyncio.Semaphore(4)
             
             async def _process_partition(partition):
+                # Skip if already completed
+                if partition.get('status') == 'completed':
+                    logger.info(f"Partition {partition['id']} already COMPLETED. Skipping.")
+                    return
+
                 async with semaphore:
+                    # Mark partition as processing
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE public.pipeline_partitions SET status = 'processing', updated_at = NOW() WHERE id = $1",
+                            uuid.UUID(partition['id'])
+                        )
+
                     p_config = {
                         'partition_key': 'id', 
                         'range_start': partition['start'], 
                         'range_end': partition['end']
                     }
                     
+                    # Get existing staging files for this partition to skip already extracted chunks
+                    async with self.pool.acquire() as conn:
+                        rows = await conn.fetch(
+                            "SELECT file_path FROM public.staging_files WHERE partition_id = $1",
+                            uuid.UUID(partition['id'])
+                        )
+                        existing_files = {r['file_path'] for r in rows}
+
                     async for chunk in connector.read_chunked(table_name, chunk_size, p_config):
+                        # Chunk ID/Path determination (simplistic for now)
+                        chunk_hash = f"part_{partition['id'][:8]}_{len(existing_files)}" # This needs a more stable hash/index in real systems
+                        remote_path_prefix = f"staging/{run_id}/{table_name}/"
+                        
+                        # Check IF this chunk was already processed (by looking at remote_path pattern)
+                        # NOTE: In a production system, connector.read_chunked would need to provide a stable chunk offset.
+                        # For now, we use a simple "count of existing files" as a proxy if stable offsets aren't available.
+                        
                         # Convert to Parquet
                         local_file = ParquetUtils.chunk_to_parquet(chunk)
+                        remote_path = f"{remote_path_prefix}{os.path.basename(local_file)}"
                         
+                        if remote_path in existing_files:
+                            logger.info(f"Chunk {remote_path} already exists. Skipping.")
+                            if os.path.exists(local_file): os.remove(local_file)
+                            continue
+
                         # Upload to Storage
-                        remote_path = f"staging/{run_id}/{table_name}/{os.path.basename(local_file)}"
                         await self.storage_service.upload_file(local_file, remote_path)
                         
                         # Store Metadata
@@ -156,6 +238,13 @@ class TaskExecutor:
                         # Cleanup
                         if os.path.exists(local_file):
                             os.remove(local_file)
+
+                    # Mark partition as completed
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE public.pipeline_partitions SET status = 'completed', updated_at = NOW() WHERE id = $1",
+                            uuid.UUID(partition['id'])
+                        )
             
             await asyncio.gather(*[_process_partition(p) for p in partitions])
         finally:

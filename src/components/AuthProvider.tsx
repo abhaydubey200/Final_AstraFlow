@@ -30,12 +30,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const mockUser = {
         id: "debug-admin-id",
         email: "admin@astra.local",
-        app_metadata: { role: "admin" },
+        app_metadata: { provider: "email", role: "admin" },
         user_metadata: { full_name: "Debug Admin" },
+        aud: "authenticated",
+        role: "authenticated",
         created_at: new Date().toISOString()
-      } as any;
+      } as User;
       setUser(mockUser);
-      setSession({ user: mockUser, access_token: "mock-token", refresh_token: "mock-refresh" } as any);
+      setSession({ 
+        user: mockUser, 
+        access_token: "mock-token", 
+        refresh_token: "mock-refresh",
+        expires_in: 3600,
+        token_type: "bearer"
+      } as Session);
       setLoading(false);
     };
 
@@ -53,9 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
           timeoutPromise
-        ]) as any;
+        ]);
 
-        const session = sessionResult?.data?.session;
+        if (!sessionResult) return;
+
+        const session = (sessionResult as { data: { session: Session | null } }).data?.session;
         if (session) {
           setSession(session);
           setUser(session.user);

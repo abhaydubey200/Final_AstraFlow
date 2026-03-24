@@ -2,7 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 
 
-import type { Pipeline, PipelineNode, PipelineEdge, PipelineWithNodes } from "@/types/pipeline";
+import type { 
+  Pipeline, 
+  PipelineNode, 
+  PipelineEdge, 
+  PipelineWithNodes,
+  AuditLog
+} from "@/types/pipeline";
+import type { CatalogDataset } from "@/pages/Catalog";
 
 
 const PIPELINES_KEY = ["pipelines"];
@@ -48,12 +55,11 @@ export function useCreatePipeline() {
 
 export function useRunPipeline() {
   return useMutation({
-    mutationFn: async ({ pipelineId, source, destination }: { pipelineId: string; source: any; destination: any }) => {
+    mutationFn: async ({ pipelineId, source, destination }: { pipelineId: string; source: Record<string, unknown>; destination: Record<string, unknown> }) => {
       return apiClient.post(`/pipelines/${pipelineId}/run`, { source, destination });
     },
   });
 }
-
 
 export function useUpdatePipeline() {
   const qc = useQueryClient();
@@ -77,7 +83,7 @@ export function usePipelineVersions(pipelineId: string) {
     queryKey: ["pipeline_versions", pipelineId],
     enabled: !!pipelineId,
     queryFn: async () => {
-      return apiClient.get<any[]>(`/pipelines/${pipelineId}/versions`);
+      return apiClient.get<Array<{ id: string; version: number; created_at: string; config_json: Record<string, unknown> }>>(`/pipelines/${pipelineId}/versions`);
     },
   });
 }
@@ -86,7 +92,7 @@ export function useAuditLogs(entityId?: string) {
   return useQuery({
     queryKey: ["audit_logs", entityId],
     queryFn: async () => {
-      return apiClient.get<any[]>("/monitoring/audit-logs", { entityId });
+      return apiClient.get<AuditLog[]>("/monitoring/audit-logs", { entityId });
     },
   });
 }
@@ -115,17 +121,16 @@ export function useAllPipelineData() {
   return useQuery({
     queryKey: ["all_pipeline_data"],
     queryFn: async () => {
-      return apiClient.get<any>("/pipelines/export");
+      return apiClient.get<Record<string, unknown>>("/pipelines/export");
     },
   });
 }
-
 
 export function useDatasets() {
   return useQuery({
     queryKey: ["datasets"],
     queryFn: async () => {
-      return apiClient.get<any[]>("/metadata/datasets");
+      return apiClient.get<CatalogDataset[]>("/metadata/datasets");
     },
   });
 }
@@ -134,7 +139,11 @@ export function useEnterpriseLineage() {
   return useQuery({
     queryKey: ["enterprise_lineage"],
     queryFn: async () => {
-      return apiClient.get<any>("/metadata/lineage");
+      return apiClient.get<{
+        pipelines: Array<{ id: string; name: string; status: string }>;
+        datasets: Array<{ id: string; name: string; connection_id: string }>;
+        dependencies: Array<{ upstream_dataset?: string; downstream_dataset?: string; pipeline_id: string }>;
+      }>("/metadata/lineage");
     },
   });
 }

@@ -1,10 +1,14 @@
-import pyodbc
+try:
+    import pyodbc
+    has_mssql = True
+except ImportError:
+    has_mssql = False
 import os
 import socket
-
 import asyncio
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
+from core.healing_monitor import runtime_monitor
 
 
 class MSSQLConnector(BaseConnector):
@@ -62,13 +66,12 @@ class MSSQLConnector(BaseConnector):
             "Connection Timeout=15;"
         )
 
+    @runtime_monitor.trace_and_heal(component="mssql")
     async def connect(self) -> bool:
         """Establish connection to MSSQL. Only uses mock if host is explicitly a mock pattern."""
         host = self.config.get("host", "").lower()
-        use_mock_env = os.getenv("USE_MOCK_DB") == "true"
-
-        # Only use Mock if explicitly requested via host name
-        if host in ["mock", "demo", "mock-server"]:
+        # Only use Mock if explicitly requested via host name or if in mock mode
+        if self._is_mock():
             print(f"Using Mock MSSQL connection for {host}")
             self.conn = "MOCK_CONN"
             return True
@@ -82,95 +85,106 @@ class MSSQLConnector(BaseConnector):
             return True
         except Exception as e:
             # If it's a real host, we MUST NOT fallback to mock. 
-            # We want the user to see the REAL error.
             print(f"MSSQL connection error for {host}: {e}")
             return False
 
+    async def _acquire_connection(self) -> Any:
+        if self.conn == "MOCK_CONN": return "MOCK_CONN"
+        if not self.conn:
+            await self.connect()
+        return self.conn
+
+    async def _release_connection(self, conn: Any):
+        # We don't have a pool for pyodbc yet, so we keep the connection open
+        # until disconnect() is explicitly called.
+        pass
+
     async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
-        if self.conn is None:
-            return
+        async with self.connection() as conn:
+            if conn is None:
+                return
 
-        if self.conn == "MOCK_CONN":
-            # Yield 3 mock chunks of 5000 rows each
-            import random
-            for i in range(3):
-                rows = []
-                for j in range(5000):
-                    rows.append({"id": i*5000 + j, "name": f"User_{j}", "val": random.randint(1, 100)})
-                yield rows
-                await asyncio.sleep(0.1)
-            return
+            if conn == "MOCK_CONN":
+                # Yield 3 mock chunks of 5000 rows each
+                import random
+                for i in range(3):
+                    rows = []
+                    for j in range(5000):
+                        rows.append({"id": i*5000 + j, "name": f"User_{j}", "val": random.randint(1, 100)})
+                    yield rows
+                    await asyncio.sleep(0.1)
+                return
 
-        cursor = None
-        try:
-            cursor = self.conn.cursor()
-            query = f"SELECT * FROM {table_name}"
-            params = []
-            
-            if partition_config:
-                pk = partition_config.get('partition_key')
-                start = partition_config.get('range_start')
-                end = partition_config.get('range_end')
-                if pk and start is not None and end is not None:
-                    query += f" WHERE [{pk}] >= ? AND [{pk}] < ?"
-                    params = [start, end]
-            
-            cursor.execute(query, params)
-            columns = [col[0] for col in cursor.description]
-            while True:
-                rows = cursor.fetchmany(chunk_size)
-                if not rows:
-                    break
-                yield [dict(zip(columns, row)) for row in rows]
-        finally:
-            if cursor:
-                cursor.close()
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                query = f"SELECT * FROM {table_name}"
+                params = []
+                
+                if partition_config:
+                    pk = partition_config.get('partition_key')
+                    start = partition_config.get('range_start')
+                    end = partition_config.get('range_end')
+                    if pk and start is not None and end is not None:
+                        query += f" WHERE [{pk}] >= ? AND [{pk}] < ?"
+                        params = [start, end]
+                
+                cursor.execute(query, params)
+                columns = [col[0] for col in cursor.description]
+                while True:
+                    rows = cursor.fetchmany(chunk_size)
+                    if not rows:
+                        break
+                    yield [dict(zip(columns, row)) for row in rows]
+            finally:
+                if cursor:
+                    cursor.close()
 
     async def discover_resources(self, target: str, **kwargs) -> List[Any]:
         """Discover MSSQL resources like databases, schemas, or tables with optional context."""
         database_context = kwargs.get("database_name")
 
-        if self.conn == "MOCK_CONN":
-            if target == "databases":
-                return ["master", "AstraFlow_DB", "AstraFlow_Dev", "AstraFlow_Prod"]
-            if target == "schemas":
-                return ["dbo", "staging", "reporting", "archive"]
-            if target == "tables":
-                # If a database context is provided, return tables for that DB
-                db = database_context or "AstraFlow_DB"
-                return [
-                    {"name": "Users", "database": db, "schema": "dbo"},
-                    {"name": "Orders", "database": db, "schema": "dbo"},
-                    {"name": "Products", "database": db, "schema": "dbo"},
-                    {"name": "Inventory", "database": db, "schema": "dbo"},
-                    {"name": "Transactions", "database": db, "schema": "dbo"},
-                    {"name": "SystemLogs", "database": db, "schema": "dbo"}
-                ]
-            return []
+        async with self.connection() as conn:
+            if conn == "MOCK_CONN":
+                if target == "databases":
+                    return ["master", "AstraFlow_DB", "AstraFlow_Dev", "AstraFlow_Prod"]
+                if target == "schemas":
+                    return ["dbo", "staging", "reporting", "archive"]
+                if target == "tables":
+                    # If a database context is provided, return tables for that DB
+                    db = database_context or "AstraFlow_DB"
+                    return [
+                        {"name": "Users", "database": db, "schema": "dbo"},
+                        {"name": "Orders", "database": db, "schema": "dbo"},
+                        {"name": "Products", "database": db, "schema": "dbo"},
+                        {"name": "Inventory", "database": db, "schema": "dbo"},
+                        {"name": "Transactions", "database": db, "schema": "dbo"},
+                        {"name": "SystemLogs", "database": db, "schema": "dbo"}
+                    ]
+                return []
 
-        if self.conn is None:
-            return []
+            if conn is None:
+                return []
 
-        cursor = self.conn.cursor()
-        try:
-            results = []
-            if target == "databases":
-                cursor.execute("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')")
-                results = [r[0] for r in cursor.fetchall()]
-            elif target == "schemas":
-                cursor.execute("SELECT name FROM sys.schemas WHERE name NOT IN ('sys', 'information_schema')")
-                results = [r[0] for r in cursor.fetchall()]
-            elif target == "tables":
-                # Use current database if not specified
-                current_db = database_context or self.config.get("database")
-                
-                # If we're not currently in the right database, we'd need to switch or use fully qualified names
-                # For simplified 'Airbyte-level' discovery, we'll fetch from the active DB
-                cursor.execute("SELECT name, schema_name(schema_id) as schema_name FROM sys.tables")
-                results = [{"name": r[0], "database": current_db, "schema": r[1]} for r in cursor.fetchall()]
-            return results
-        finally:
-            cursor.close()
+            cursor = conn.cursor()
+            try:
+                results = []
+                if target == "databases":
+                    cursor.execute("SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')")
+                    results = [r[0] for r in cursor.fetchall()]
+                elif target == "schemas":
+                    cursor.execute("SELECT name FROM sys.schemas WHERE name NOT IN ('sys', 'information_schema')")
+                    results = [r[0] for r in cursor.fetchall()]
+                elif target == "tables":
+                    # Use current database if not specified
+                    current_db = database_context or self.config.get("database")
+                    
+                    # If we're not currently in the right database, we'd need to switch or use fully qualified names
+                    cursor.execute("SELECT name, schema_name(schema_id) as schema_name FROM sys.tables")
+                    results = [{"name": r[0], "database": current_db, "schema": r[1]} for r in cursor.fetchall()]
+                return results
+            finally:
+                cursor.close()
 
 
 
@@ -182,19 +196,22 @@ class MSSQLConnector(BaseConnector):
 
 
     async def health_check(self) -> bool:
-        if self.conn is None:
-            return False
-        cursor = None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT 1")
-            result = cursor.fetchone()
-            return result is not None and result[0] == 1
-        except Exception:
-            return False
-        finally:
-            if cursor:
-                cursor.close()
+        async with self.connection() as conn:
+            if conn is None:
+                return False
+            if conn == "MOCK_CONN":
+                return True
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+                result = cursor.fetchone()
+                return result is not None and result[0] == 1
+            except Exception:
+                return False
+            finally:
+                if cursor:
+                    cursor.close()
         return False
 
     async def diagnose(self) -> Dict[str, Any]:
@@ -298,131 +315,143 @@ class MSSQLConnector(BaseConnector):
             
         return diagnostics
 
+    @runtime_monitor.trace_and_heal(component="mssql")
     async def discover_schema(self) -> List[Dict[str, Any]]:
-        if self.conn == "MOCK_CONN":
-            return [
-                {
-                    "schema": "dbo", 
-                    "name": "Users", 
-                    "columns": [
-                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "Email", "type": "nvarchar(255)", "nullable": False},
-                        {"name": "CreatedAt", "type": "datetime", "nullable": False}
-                    ],
-                    "primary_key": "Id",
-                    "recommended_cursor": "CreatedAt"
-                },
-                {
-                    "schema": "dbo", 
-                    "name": "Orders", 
-                    "columns": [
-                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "UserId", "type": "int", "nullable": False},
-                        {"name": "Total", "type": "money", "nullable": False},
-                        {"name": "OrderDate", "type": "datetime", "nullable": False}
-                    ],
-                    "primary_key": "Id",
-                    "recommended_cursor": "OrderDate"
-                },
-                {
-                    "schema": "sales", 
-                    "name": "Products", 
-                    "columns": [
-                        {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "Name", "type": "nvarchar(100)", "nullable": False},
-                        {"name": "Price", "type": "decimal(18,2)", "nullable": False}
-                    ],
-                    "primary_key": "Id"
-                },
-                {
-                    "schema": "inventory", 
-                    "name": "Stocks", 
-                    "columns": [
-                        {"name": "ProductSKU", "type": "nvarchar(50)", "nullable": False, "is_primary_key": True},
-                        {"name": "Quantity", "type": "int", "nullable": False}
-                    ],
-                    "primary_key": "ProductSKU"
-                }
-            ]
-        if self.conn is None:
-            return []
-
-
-        cursor = None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    TABLE_SCHEMA as schema_name,
-                    TABLE_NAME as table_name,
-                    COLUMN_NAME as column_name,
-                    DATA_TYPE as data_type,
-                    IS_NULLABLE as is_nullable
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA NOT IN ('sys', 'information_schema')
-                ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
-            """)
-
-            tables: Dict[str, Any] = {}
-            for row in cursor.fetchall():
-                key = f"{row.schema_name}.{row.table_name}"
-                if key not in tables:
-                    tables[key] = {
-                        "schema": row.schema_name,
-                        "name": row.table_name,
-                        "columns": []
+        async with self.connection() as conn:
+            if conn == "MOCK_CONN":
+                return [
+                    {
+                        "schema": "dbo", 
+                        "name": "Users", 
+                        "columns": [
+                            {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "Email", "type": "nvarchar(255)", "nullable": False},
+                            {"name": "CreatedAt", "type": "datetime", "nullable": False}
+                        ],
+                        "primary_key": "Id",
+                        "recommended_cursor": "CreatedAt"
+                    },
+                    {
+                        "schema": "dbo", 
+                        "name": "Orders", 
+                        "columns": [
+                            {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "UserId", "type": "int", "nullable": False},
+                            {"name": "Total", "type": "money", "nullable": False},
+                            {"name": "OrderDate", "type": "datetime", "nullable": False}
+                        ],
+                        "primary_key": "Id",
+                        "recommended_cursor": "OrderDate"
+                    },
+                    {
+                        "schema": "sales", 
+                        "name": "Products", 
+                        "columns": [
+                            {"name": "Id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "Name", "type": "nvarchar(100)", "nullable": False},
+                            {"name": "Price", "type": "decimal(18,2)", "nullable": False}
+                        ],
+                        "primary_key": "Id"
+                    },
+                    {
+                        "schema": "inventory", 
+                        "name": "Stocks", 
+                        "columns": [
+                            {"name": "ProductSKU", "type": "nvarchar(50)", "nullable": False, "is_primary_key": True},
+                            {"name": "Quantity", "type": "int", "nullable": False}
+                        ],
+                        "primary_key": "ProductSKU"
                     }
-                tables[key]["columns"].append({
-                    "name": row.column_name,
-                    "type": row.data_type,
-                    "nullable": row.is_nullable == "YES"
-                })
-            return list(tables.values())
-        except Exception as e:
-            print(f"MSSQL schema discovery error: {e}")
-            return []
-        finally:
-            if cursor:
-                cursor.close()
+                ]
+            if conn is None:
+                return []
+
+
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 
+                        TABLE_SCHEMA as schema_name,
+                        TABLE_NAME as table_name,
+                        COLUMN_NAME as column_name,
+                        DATA_TYPE as data_type,
+                        IS_NULLABLE as is_nullable
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA NOT IN ('sys', 'information_schema')
+                    ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+                """)
+
+                tables: Dict[str, Any] = {}
+                for row in cursor.fetchall():
+                    key = f"{row.schema_name}.{row.table_name}"
+                    if key not in tables:
+                        tables[key] = {
+                            "schema": row.schema_name,
+                            "name": row.table_name,
+                            "columns": []
+                        }
+                    tables[key]["columns"].append({
+                        "name": row.column_name,
+                        "type": row.data_type,
+                        "nullable": row.is_nullable == "YES"
+                    })
+                return list(tables.values())
+            except Exception as e:
+                print(f"MSSQL schema discovery error: {e}")
+                return []
+            finally:
+                if cursor:
+                    cursor.close()
         return []
 
+    @runtime_monitor.trace_and_heal(component="mssql")
     async def read_records(self, table_name: str, sync_mode: str, cursor_val: Optional[Any] = None) -> List[Dict[str, Any]]:
-        if self.conn is None:
-            return []
+        async with self.connection() as conn:
+            if conn is None:
+                return []
+            if conn == "MOCK_CONN":
+                return []
 
-        cursor = None
-        try:
-            cursor = self.conn.cursor()
-            query = f"SELECT * FROM {table_name}"
-            cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
-        except Exception as e:
-            print(f"MSSQL read error: {e}")
-            return []
-        finally:
-            if cursor:
-                cursor.close()
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                query = f"SELECT * FROM {table_name}"
+                cursor.execute(query)
+                columns = [col[0] for col in cursor.description]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            except Exception as e:
+                print(f"MSSQL read error: {e}")
+                return []
+            finally:
+                if cursor:
+                    cursor.close()
         return []
 
+    @runtime_monitor.trace_and_heal(component="mssql")
     async def write_records(self, table_name: str, records: List[Dict[str, Any]]) -> bool:
-        if self.conn is None or not records:
+        if not records:
             return False
+        async with self.connection() as conn:
+            if conn is None:
+                return False
+            if conn == "MOCK_CONN":
+                return True
 
-        cursor = None
-        try:
-            cursor = self.conn.cursor()
-            keys = list(records[0].keys())
-            columns = ", ".join(keys)
-            placeholders = ", ".join(["?" for _ in keys])
-            query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
-            data = [[record[k] for k in keys] for record in records]
-            cursor.executemany(query, data)
-            return True
-        except Exception as e:
-            print(f"MSSQL write error: {e}")
-            return False
-        finally:
-            if cursor:
-                cursor.close()
+            cursor = None
+            try:
+                cursor = conn.cursor()
+                keys = list(records[0].keys())
+                columns = ", ".join(keys)
+                placeholders = ", ".join(["?" for _ in keys])
+                query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+                data = [[record[k] for k in keys] for record in records]
+                cursor.executemany(query, data)
+                return True
+            except Exception as e:
+                print(f"MSSQL write error: {e}")
+                return False
+            finally:
+                if cursor:
+                    cursor.close()
         return False

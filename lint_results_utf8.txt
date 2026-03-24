@@ -1,0 +1,330 @@
+﻿
+> vite_react_shadcn_ts@0.0.0 lint
+> eslint .
+
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\AlertingPanel.tsx
+   25:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   33:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   91:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  216:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\AuthProvider.tsx
+  19:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  36:12  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  38:99  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  56:15  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\DataLineage.tsx
+   39:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   44:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   49:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   60:49  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  103:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  103:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  106:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  109:27  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  141:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  148:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  151:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  157:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  162:31  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\OnboardingWizard.tsx
+  37:60  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\PipelineBuilder.tsx
+   60:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   68:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   70:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   90:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   99:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  106:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  111:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  165:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\SchemaDriftPanel.tsx
+   31:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   40:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   59:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   61:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  105:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\SelfHealingErrorBoundary.tsx
+  40:23  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\SystemMetricsDashboard.tsx
+  44:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ThemeProvider.tsx
+  10:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\VersionHistory.tsx
+  46:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\connections\ConnectionCard.tsx
+  18:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\connections\ConnectionExplorer.tsx
+   56:6   warning  React Hook useEffect has a missing dependency: 'loadRoot'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   65:27  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+   66:12  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+   83:23  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  305:29  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+  309:29  error    Unexpected any. Specify a different type                                                                     @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\connections\ConnectionWizard.tsx
+   38:33  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+   40:14  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+   41:44  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+   41:63  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+   56:58  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+   92:6   warning  React Hook useEffect has a missing dependency: 'fetchInitialResources'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  106:19  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  133:19  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  152:19  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  178:31  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  342:53  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  349:55  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+  356:49  error    Unexpected any. Specify a different type                                                                                  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\pipeline-builder\ResourcePicker.tsx
+   57:6   warning  React Hook useEffect has missing dependencies: 'loadRoot' and 'treeContent.root'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  113:33  error    Unexpected any. Specify a different type                                                                                              @typescript-eslint/no-explicit-any
+  224:56  error    Unexpected any. Specify a different type                                                                                              @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\pipeline-builder\SchemaSelector.tsx
+  54:19  error    Unexpected any. Specify a different type                                                                         @typescript-eslint/no-explicit-any
+  67:6   warning  React Hook useEffect has a missing dependency: 'schemaLoaded'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\pipeline-builder\TransformNodeConfig.tsx
+  12:80  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\pipeline-builder\types.ts
+  11:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\badge.tsx
+  29:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\button.tsx
+  47:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\command.tsx
+  24:11  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\form.tsx
+  129:10  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\navigation-menu.tsx
+  111:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\sidebar.tsx
+  636:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\sonner.tsx
+  27:19  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\textarea.tsx
+  5:18  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\components\ui\toggle.tsx
+  37:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\hooks\use-connections.ts
+  155:43   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  157:50   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  163:30   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  163:138  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  165:37   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  171:44   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  171:63   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:53   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:72   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\hooks\use-executions.ts
+   20:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   52:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   56:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   67:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   72:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   90:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  126:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  128:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  135:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  138:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  148:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\hooks\use-metadata.ts
+  21:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  25:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  34:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  40:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  43:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  46:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  52:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  56:28  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\hooks\use-pipelines.ts
+   51:91   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   51:109  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   80:28   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   89:28   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  118:28   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  128:28   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  137:28   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\integrations\supabase\client.ts
+  20:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\lib\api-client.ts
+  37:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  54:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\AuditLogs.tsx
+  113:70  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\AuthPage.tsx
+  64:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\Catalog.tsx
+   19:58  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   26:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   95:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  181:65  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\Connections.tsx
+  140:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  156:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  167:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\CostDashboard.tsx
+   20:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   33:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  111:27  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  130:71  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  157:59  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  175:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\DatasetDetail.tsx
+   21:12  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  215:49  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\ExecutionLogs.tsx
+   17:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  137:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\Governance.tsx
+   32:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  177:45  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  197:61  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\Marketplace.tsx
+  108:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\Monitoring.tsx
+   53:68   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   59:47   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   75:65   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   76:60   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   78:61   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   78:125  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  211:73   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  277:96   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\PipelineBuilderPage.tsx
+  22:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\PipelineDetail.tsx
+   70:60  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   72:64  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  152:12  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  243:67  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  244:68  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  490:27  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  551:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  560:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  594:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\ResetPassword.tsx
+  37:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\connection-wizard\ConnectionConfigPage.tsx
+   31:59  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   46:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   54:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   55:78  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  106:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  139:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  166:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  168:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\connection-wizard\ReviewPage.tsx
+   50:51  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   56:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  149:47  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\connection-wizard\SchemaSelectionPage.tsx
+  43:40  error    Unexpected any. Specify a different type                                                                           @typescript-eslint/no-explicit-any
+  49:58  error    Unexpected any. Specify a different type                                                                           @typescript-eslint/no-explicit-any
+  57:6   warning  React Hook useEffect has a missing dependency: 'fetchDatabases'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\pages\connection-wizard\SyncConfigPage.tsx
+   48:36  error    Unexpected any. Specify a different type                                                                                                            @typescript-eslint/no-explicit-any
+   55:44  error    Unexpected any. Specify a different type                                                                                                            @typescript-eslint/no-explicit-any
+   63:6   warning  React Hook useEffect has a missing dependency: 'selectedTablesList'. Either include it or remove the dependency array                               react-hooks/exhaustive-deps
+   65:81  error    Unexpected any. Specify a different type                                                                                                            @typescript-eslint/no-explicit-any
+   80:56  error    Unexpected any. Specify a different type                                                                                                            @typescript-eslint/no-explicit-any
+  138:43  error    Unexpected any. Specify a different type                                                                                                            @typescript-eslint/no-explicit-any
+  147:49  error    React Hook "useState" cannot be called inside a callback. React Hooks must be called in a React function component or a custom React Hook function  react-hooks/rules-of-hooks
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\src\types\connection.ts
+  36:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  57:27  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\discover-resources\index.ts
+   92:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  150:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\pipeline-execute\index.ts
+    1:1   error  Do not use "@ts-nocheck" because it alters compilation errors  @typescript-eslint/ban-ts-comment
+  180:19  error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  194:17  error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  203:36  error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\pipeline-validate\index.ts
+  103:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  109:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  160:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  184:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  184:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\schema-discovery\index.ts
+  249:41  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  250:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  251:41  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  276:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  277:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  278:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  279:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  280:47  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  286:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\simulate-run\index.ts
+  118:77   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  136:70   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  136:144  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  287:36   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Abhay Dubey\Desktop\AstraFlow\crystal-flow-bridge\supabase\functions\worker-processor\index.ts
+    1:1    error  Do not use "@ts-nocheck" because it alters compilation errors  @typescript-eslint/ban-ts-comment
+   85:53   error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  256:24   error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  313:17   error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  322:41   error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  322:105  error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  339:36   error  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+
+Γ£û 211 problems (196 errors, 15 warnings)
+

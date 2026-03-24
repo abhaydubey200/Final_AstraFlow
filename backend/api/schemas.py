@@ -46,7 +46,7 @@ class PipelineTaskRunResponse(BaseModel):
     status: str
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    retry_count: int = 0
+    retry_count: int = Field(default=0, ge=0)
     error_message: Optional[str] = None
 
     class Config:
@@ -104,7 +104,8 @@ class PipelineRunResponse(BaseModel):
     start_time: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     end_time: Optional[datetime] = None # Alias for finished_at to match frontend
-    rows_processed: int = 0
+    rows_processed: int = Field(default=0, ge=0)
+    last_successful_stage: Optional[str] = None
     error_message: Optional[str] = None
 
     class Config:

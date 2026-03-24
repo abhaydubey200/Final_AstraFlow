@@ -1,16 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/components/AuthProvider";
 import { usePipeline, useUpdatePipeline, useDeletePipeline, useAuditLogs } from "@/hooks/use-pipelines";
-import type { ScheduleType } from "@/types/pipeline";
+import type { ScheduleType, PipelineRun, PipelineTaskRun, AuditLog } from "@/types/pipeline";
 import { usePipelineRuns, useExecutionLogs, useTriggerRun, useWorkerJobs } from "@/hooks/use-executions";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
-  ArrowLeft, Play, Calendar, Clock, CheckCircle, XCircle,
+  ArrowLeft, Play, Clock, CheckCircle, XCircle,
   ChevronDown, ChevronRight, Database, Upload, Activity,
   FileCheck, Trash2, Bell, BellOff, Terminal, Edit, Loader2,
 } from "lucide-react";
@@ -32,6 +32,11 @@ const taskIcons: Record<string, typeof Database> = {
 function formatDuration(start: string, end: string | null): string {
   if (!end) return "—";
   return formatDistanceStrict(new Date(start), new Date(end));
+}
+
+interface ValidationResult {
+  valid: boolean;
+  message?: string;
 }
 
 const PipelineDetail = () => {
@@ -66,28 +71,29 @@ const PipelineDetail = () => {
   const [notifySuccess, setNotifySuccess] = useState(false);
   const [settingsInit, setSettingsInit] = useState(false);
 
-  // New UX Phase 2 state
-  const [validationResult, setValidationResult] = useState<any>(null);
-  const [isValidating, setIsValidating] = useState(false);
-  const [failureExplanation, setFailureExplanation] = useState<any>(null);
-  const [isExplaining, setIsExplaining] = useState(false);
+  const [validationResult] = useState<ValidationResult | null>(null);
 
   // Initialize schedule/settings from pipeline once loaded
-  if (pipeline && !scheduleInit) {
-    setScheduleType(pipeline.schedule_type || "manual");
-    const cfg = pipeline.schedule_config as Record<string, unknown> | null;
-    setCronExpr((cfg?.cron_expression as string) ?? "");
-    setScheduleInit(true);
-  }
-  if (pipeline && !settingsInit) {
-    const cfg = pipeline.schedule_config as Record<string, unknown> | null;
-    setRetryMax((cfg?.retry_max as number) ?? 3);
-    setRetryInterval((cfg?.retry_interval as number) ?? 5);
-    setTimeout_((cfg?.timeout as number) ?? 30);
-    setNotifyFail((cfg?.notify_on_fail as boolean) ?? true);
-    setNotifySuccess((cfg?.notify_on_success as boolean) ?? false);
-    setSettingsInit(true);
-  }
+  useEffect(() => {
+    if (pipeline && !scheduleInit) {
+      setScheduleType(pipeline.schedule_type || "manual");
+      const cfg = pipeline.schedule_config as Record<string, unknown> | null;
+      setCronExpr((cfg?.cron_expression as string) ?? "");
+      setScheduleInit(true);
+    }
+  }, [pipeline, scheduleInit]);
+
+  useEffect(() => {
+    if (pipeline && !settingsInit) {
+      const cfg = pipeline.schedule_config as Record<string, unknown> | null;
+      setRetryMax((cfg?.retry_max as number) ?? 3);
+      setRetryInterval((cfg?.retry_interval as number) ?? 5);
+      setTimeout_((cfg?.timeout as number) ?? 30);
+      setNotifyFail((cfg?.notify_on_fail as boolean) ?? true);
+      setNotifySuccess((cfg?.notify_on_success as boolean) ?? false);
+      setSettingsInit(true);
+    }
+  }, [pipeline, settingsInit]);
 
   if (loadingPipeline) {
     return (
@@ -125,7 +131,8 @@ const PipelineDetail = () => {
   })();
 
   const handleRunNow = () => {
-    triggerRun.mutate({ pipelineId: pipeline.id, userId: user?.id }, {
+    if (!user) return;
+    triggerRun.mutate({ pipelineId: pipeline.id, userId: user.id }, {
       onSuccess: () => toast({ title: "Pipeline execution started", description: "Watch the logs update in real time." }),
       onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
     });
@@ -143,18 +150,17 @@ const PipelineDetail = () => {
       nextRun = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
     }
 
-    updatePipeline.mutate(
-      {
-        id: pipeline.id,
-        schedule_type: scheduleType,
-        schedule_config: { ...((pipeline.schedule_config as Record<string, unknown>) ?? {}), cron_expression: cronExpr },
-        ...(nextRun ? { next_run_at: nextRun } : {}),
-      } as any,
-      {
-        onSuccess: () => toast({ title: "Schedule updated" }),
-        onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-      }
-    );
+        updatePipeline.mutate({ 
+          id: pipeline.id, 
+          name: pipeline.name!,
+          schedule_type: scheduleType,
+          schedule_config: { ...((pipeline.schedule_config as Record<string, unknown>) ?? {}), cron_expression: cronExpr },
+          ...(nextRun ? { next_run_at: nextRun } : {}),
+        },
+        {
+          onSuccess: () => toast({ title: "Schedule updated" }),
+          onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+        });
   };
 
   const handleUpdateSettings = () => {
@@ -190,7 +196,6 @@ const PipelineDetail = () => {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate("/pipelines")} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
@@ -223,7 +228,6 @@ const PipelineDetail = () => {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {tabs.map((tab) => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={cn("px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px", activeTab === tab.key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
@@ -232,7 +236,6 @@ const PipelineDetail = () => {
         ))}
       </div>
 
-      {/* Tab: Overview */}
       {activeTab === "overview" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -240,8 +243,8 @@ const PipelineDetail = () => {
               { label: "Success Rate", value: successRate, icon: CheckCircle, color: "text-success" },
               { label: "Avg Duration", value: avgDuration, icon: Clock, color: "text-primary" },
               { label: "Rows Scaled", value: totalRows.toLocaleString(), icon: Activity, color: "text-primary" },
-              { label: "Staging Files", value: runs.reduce((s, r: any) => s + (r.metadata?.files_created || 0), 0), icon: FileCheck, color: "text-primary" },
-              { label: "Data Scale", value: `${(runs.reduce((s, r: any) => s + (r.metadata?.bytes_extracted || 0), 0) / (1024 * 1024)).toFixed(2)} MB`, icon: Database, color: "text-emerald-500" },
+              { label: "Staging Files", value: runs.reduce((s, r) => s + (Number(r.metadata?.files_created) || 0), 0), icon: FileCheck, color: "text-primary" },
+              { label: "Data Scale", value: `${(runs.reduce((s, r) => s + (Number(r.metadata?.bytes_extracted) || 0), 0) / (1024 * 1024)).toFixed(2)} MB`, icon: Database, color: "text-emerald-500" },
             ].map((m) => (
               <div key={m.label} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -253,7 +256,6 @@ const PipelineDetail = () => {
             ))}
           </div>
 
-          {/* Config */}
           <div className="rounded-lg border border-border bg-card p-5 space-y-3">
             <h3 className="text-sm font-display font-semibold text-foreground">Configuration</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -271,7 +273,6 @@ const PipelineDetail = () => {
             </div>
           </div>
 
-          {/* Pipeline Flow from real nodes */}
           {nodes.length > 0 && (
             <div className="rounded-lg border border-border bg-card p-5">
               <h3 className="text-sm font-display font-semibold text-foreground mb-4">Pipeline Flow</h3>
@@ -307,7 +308,6 @@ const PipelineDetail = () => {
         </div>
       )}
 
-      {/* Tab: Run History */}
       {activeTab === "history" && (
         <div className="space-y-2">
           {loadingRuns ? (
@@ -345,7 +345,6 @@ const PipelineDetail = () => {
         </div>
       )}
 
-      {/* Tab: Schedule */}
       {activeTab === "schedule" && (
         <div className="max-w-lg space-y-5">
           <div className="rounded-lg border border-border bg-card p-5 space-y-4">
@@ -391,7 +390,6 @@ const PipelineDetail = () => {
         </div>
       )}
 
-      {/* Tab: Settings */}
       {activeTab === "settings" && (
         <div className="max-w-lg space-y-5">
           <div className="rounded-lg border border-border bg-card p-5 space-y-4">
@@ -448,18 +446,17 @@ const PipelineDetail = () => {
         </div>
       )}
 
-      {/* Tab: Versions */}
       {activeTab === "versions" && (
         <VersionHistory pipelineId={id!} />
       )}
 
-      {/* Tab: Audit Logs */}
       {activeTab === "audit" && (
         <AuditLogsPanel entityId={id} />
       )}
     </div>
   );
 };
+
 
 function AuditLogsPanel({ entityId }: { entityId?: string }) {
   const { data: logs = [], isLoading } = useAuditLogs(entityId);
@@ -487,7 +484,7 @@ function AuditLogsPanel({ entityId }: { entityId?: string }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {logs.map((log: any) => (
+          {logs.map((log: AuditLog) => (
             <tr key={log.id} className="hover:bg-muted/10 transition-colors">
               <td className="px-5 py-3 text-[11px] text-muted-foreground whitespace-nowrap">
                 {format(new Date(log.timestamp), "PPp")}
@@ -498,7 +495,7 @@ function AuditLogsPanel({ entityId }: { entityId?: string }) {
                 </Badge>
               </td>
               <td className="px-5 py-3 text-[11px] text-foreground font-medium">
-                Modified by {log.user_id.slice(0, 8)}
+                Modified by {log.performed_by?.slice(0, 8) || 'System'}
               </td>
             </tr>
           ))}
@@ -508,9 +505,8 @@ function AuditLogsPanel({ entityId }: { entityId?: string }) {
   );
 }
 
-/* Sub-component for expandable run rows */
 function RunRow({ run, expanded, onToggle, expandedTask, setExpandedTask }: {
-  run: { id: string; status: string; start_time: string; end_time: string | null; rows_processed: number; error_message: string | null };
+  run: PipelineRun;
   expanded: boolean;
   onToggle: () => void;
   expandedTask: string | null;
@@ -528,7 +524,7 @@ function RunRow({ run, expanded, onToggle, expandedTask, setExpandedTask }: {
         <td className="px-5 py-3"><StatusBadge status={statusMap[run.status] ?? "pending"} /></td>
         <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(run.start_time), "PPp")}</td>
         <td className="px-5 py-3 text-xs font-display text-muted-foreground">{formatDuration(run.start_time, run.end_time)}</td>
-        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{run.rows_processed.toLocaleString()}</td>
+        <td className="px-5 py-3 text-xs font-display text-muted-foreground">{(run.rows_processed ?? 0).toLocaleString()}</td>
       </tr>
       {expanded && (
         <tr>
@@ -544,27 +540,23 @@ function RunRow({ run, expanded, onToggle, expandedTask, setExpandedTask }: {
 function RunLogsPanel({ runId, expandedTask, setExpandedTask, errorMessage }: {
   runId: string; expandedTask: string | null; setExpandedTask: (k: string | null) => void; errorMessage: string | null;
 }) {
-  const { data: logs = [], isLoading: loadingLogs } = useExecutionLogs({ runId });
-  const { data: jobs = [], isLoading: loadingJobs } = useWorkerJobs(runId);
-  const { data: tasks = [], isLoading: loadingTasks } = useQuery({
+  const { data: logs = [] } = useExecutionLogs({ runId });
+  const { data: jobs = [] } = useWorkerJobs(runId);
+  const { data: tasks = [] } = useQuery({
     queryKey: ["task_runs", runId],
-    queryFn: () => apiClient.get<any[]>(`/pipelines/runs/${runId}/tasks`),
+    queryFn: () => apiClient.get<PipelineTaskRun[]>(`/pipelines/runs/${runId}/tasks`),
     enabled: !!runId
   });
 
-  if (loadingLogs || loadingJobs || loadingTasks) return <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-primary" /></div>;
+  const displayTasks = tasks.length > 0 ? tasks : (jobs as unknown as PipelineTaskRun[]);
 
-  const displayTasks = tasks.length > 0 ? tasks : jobs;
-
-  // Mock timeline data for UX demonstration
-  const timelineTasks = displayTasks.map((t: any) => ({
+  const timelineTasks = displayTasks.map((t) => ({
     id: t.id,
-    name: t.stage || t.task_name,
-    status: ((t.status === 'completed' || t.status === 'success') ? 'success' : 
+    name: t.stage,
+    status: (t.status === 'success' ? 'success' : 
             (t.status === 'failed' ? 'failed' : 
             (t.status === 'running' ? 'running' : 'pending'))) as "success" | "failed" | "running" | "pending",
-    progress: t.status === 'completed' || t.status === 'success' ? 100 : 
-              (t.status === 'running' ? 45 : 0),
+    progress: t.status === 'success' ? 100 : (t.status === 'running' ? 45 : 0),
     duration: t.duration || "—"
   })) as TaskState[];
 
@@ -578,12 +570,11 @@ function RunLogsPanel({ runId, expandedTask, setExpandedTask, errorMessage }: {
             <Badge variant="outline" className="text-[9px] h-4 bg-primary/10 border-primary/20 text-primary">GPT-4 Turbo</Badge>
           </AlertTitle>
           <AlertDescription className="text-xs mt-1 space-y-2">
-            <p className="font-medium">Reason: <span className="text-foreground">Authentication failed for source node.</span></p>
+            <p className="font-medium">Reason: <span className="text-foreground">{errorMessage}</span></p>
             <div className="p-2 rounded bg-destructive/10 border border-destructive/20">
               <p className="font-bold flex items-center gap-1.5"><CheckCircle className="w-3 h-3" /> Suggested Fix:</p>
-              <p className="mt-1 opacity-90">Verify your PostgreSQL password in the Secret Manager. It looks like the credential has expired or was rotated.</p>
+              <p className="mt-1 opacity-90">Verify your connection credentials and ensure the network allows communication with the target database.</p>
             </div>
-            <button className="text-[10px] underline hover:text-foreground transition-colors">Apply fix automatically</button>
           </AlertDescription>
         </Alert>
       )}
@@ -591,28 +582,28 @@ function RunLogsPanel({ runId, expandedTask, setExpandedTask, errorMessage }: {
       <ExecutionTimeline tasks={timelineTasks} />
 
       <div className="space-y-2">
-      {displayTasks.map((task: any) => {
-        const stageLogs = logs.filter((l) => l.stage === (task.stage || task.task_name));
+      {displayTasks.map((task) => {
+        const stageLogs = logs.filter((l) => l.stage === task.stage);
         const status = task.status;
-        const Icon = taskIcons[task.stage || task.task_type] || Activity;
+        const Icon = taskIcons[task.stage] || Activity;
         const taskKey = `${runId}-${task.id}`;
         
         return (
           <div key={task.id} className="rounded-md border border-border bg-card overflow-hidden">
             <button onClick={(e) => { e.stopPropagation(); setExpandedTask(expandedTask === taskKey ? null : taskKey); }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors text-left relative overflow-hidden">
               {status === 'running' && <div className="absolute top-0 left-0 w-full h-[2px] bg-primary/20"><div className="h-full bg-primary animate-pulse w-1/3" /></div>}
-              {status === 'failed' ? <XCircle className="w-3.5 h-3.5 text-destructive" /> : status === 'running' ? <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /> : status === 'success' || status === 'completed' ? <CheckCircle className="w-3.5 h-3.5 text-success" /> : <Clock className="w-3.5 h-3.5 text-muted-foreground" />}
+              {status === 'failed' ? <XCircle className="w-3.5 h-3.5 text-destructive" /> : status === 'running' ? <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /> : status === 'success' ? <CheckCircle className="w-3.5 h-3.5 text-success" /> : <Clock className="w-3.5 h-3.5 text-muted-foreground" />}
               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
               <div className="flex flex-col flex-1">
-                 <span className="text-xs font-medium text-foreground capitalize">{task.stage || task.task_name}</span>
+                 <span className="text-xs font-medium text-foreground capitalize">{task.stage}</span>
                  {status === "running" && (
                    <div className="mt-1 w-full max-w-[120px] h-1 rounded-full bg-muted overflow-hidden">
                      <div className="h-full bg-primary transition-all duration-300 w-[15%]" />
                    </div>
                  )}
-                 {status === "retrying" && <span className="text-[10px] text-warning font-display">Retrying (Attempt {task.retry_count || 1})</span>}
+                 {status === "retrying" && <span className="text-[10px] text-orange-500 font-display">Retrying (Attempt {task.retry_count || 1})</span>}
               </div>
-              <StatusBadge status={status === 'success' || status === 'completed' ? 'success' : status === 'failed' ? 'failed' : 'pending'} />
+              <StatusBadge status={status === 'success' ? 'success' : status === 'failed' ? 'failed' : 'pending'} />
               <Terminal className="w-3 h-3 text-muted-foreground" />
             </button>
             {expandedTask === taskKey && (

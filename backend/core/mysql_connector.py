@@ -1,8 +1,15 @@
-from mysql.connector.pooling import MySQLConnectionPool
+try:
+    import mysql.connector
+    from mysql.connector.pooling import MySQLConnectionPool
+    has_mysql = True
+except ImportError:
+    has_mysql = False
+    class MySQLConnectionPool: pass # Placeholder for type hinting
 import os
-
+import asyncio
 from typing import List, Dict, Any, Optional
 from core.base_connector import BaseConnector
+from core.healing_monitor import runtime_monitor
 
 class MySQLConnector(BaseConnector):
     """MySQL connector using pooled connections."""
@@ -36,12 +43,13 @@ class MySQLConnector(BaseConnector):
         super().__init__(config)
         self.pool: Optional[MySQLConnectionPool] = None
 
+    @runtime_monitor.trace_and_heal(component="mysql")
     async def connect(self) -> bool:
         """Establish connection to MySQL. Only uses mock if host is explicitly a mock pattern."""
         host = (self.config.get("host") or "").lower()
 
-        # Only use Mock if explicitly requested via host name
-        if host in ["mock", "demo", "mock-server"]:
+        # Only use Mock if explicitly requested via host name or if in mock mode
+        if self._is_mock():
             print(f"Using Mock MySQL connection for {host}")
             self.pool = "MOCK_POOL"
             return True
@@ -65,38 +73,37 @@ class MySQLConnector(BaseConnector):
             print(f"MySQL connection pool error for {host}: {e}")
             return False
 
-    async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
-        if self.pool is None:
-            return
+    async def _acquire_connection(self) -> Any:
+        if self.pool == "MOCK_POOL": return "MOCK_POOL"
+        if not self.pool:
+            await self.connect()
+        return await asyncio.to_thread(self.pool.get_connection)
 
-        conn = None
-        cursor = None
-        try:
-            conn = self.pool.get_connection()
+    async def _release_connection(self, conn: Any):
+        if conn == "MOCK_POOL": return
+        if conn:
+            await asyncio.to_thread(conn.close)
+
+    async def read_chunked(self, table_name: str, chunk_size: int, partition_config: Optional[Dict[str, Any]] = None):
+        async with self.connection() as conn:
+            if conn == "MOCK_POOL": return
             cursor = conn.cursor(dictionary=True)
-            quoted_table = ".".join([f"`{p}`" for p in table_name.split(".")])
-            query = f"SELECT * FROM {quoted_table}"
-            params = []
-            
-            if partition_config:
-                pk = partition_config.get('partition_key')
-                start = partition_config.get('range_start')
-                end = partition_config.get('range_end')
-                if pk and start is not None and end is not None:
-                    query += f" WHERE `{pk}` >= %s AND `{pk}` < %s"
-                    params = [start, end]
-            
-            cursor.execute(query, params)
-            while True:
-                rows = cursor.fetchmany(chunk_size)
-                if not rows:
-                    break
-                yield rows
-        finally:
-            if cursor:
+            try:
+                quoted = ".".join([f"`{p}`" for p in table_name.split(".")])
+                query = f"SELECT * FROM {quoted}"
+                params = []
+                if partition_config:
+                    pk, start, end = partition_config.get('partition_key'), partition_config.get('range_start'), partition_config.get('range_end')
+                    if pk and start is not None and end is not None:
+                        query += f" WHERE `{pk}` >= %s AND `{pk}` < %s"
+                        params = [start, end]
+                cursor.execute(query, params)
+                while True:
+                    rows = cursor.fetchmany(chunk_size)
+                    if not rows: break
+                    yield rows
+            finally:
                 cursor.close()
-            if conn:
-                conn.close()
 
     async def diagnose(self) -> Dict[str, Any]:
         """Perform deep diagnostics for MySQL."""
@@ -173,58 +180,50 @@ class MySQLConnector(BaseConnector):
         return report
 
     async def discover_resources(self, target: str, **kwargs) -> List[Any]:
-        """Discover MySQL resources like databases, schemas, or tables with optional context."""
-        database_context = kwargs.get("database_name")
+        async with self.connection() as conn:
+            if conn == "MOCK_POOL":
+                if target == "databases": return ["sys", "mysql", "AstraFlow_Repo"]
+                if target == "schemas":
+                    return ["public", "internal"]
+                if target == "tables":
+                    db = kwargs.get("database_name") or "AstraFlow_Repo"
+                    return [
+                        {"name": "users", "database": db, "schema": "public"},
+                        {"name": "orders", "database": db, "schema": "public"},
+                        {"name": "products", "database": db, "schema": "public"},
+                        {"name": "discounts", "database": db, "schema": "public"},
+                        {"name": "visits", "database": db, "schema": "public"}
+                    ]
+                return []
 
-        if self.pool == "MOCK_POOL":
-            if target == "databases":
-                return ["sys", "performance_schema", "mysql", "AstraFlow_Repo", "Customer_Insight", "Sales_Data"]
-            if target == "schemas":
-                return ["public", "internal"]
-            if target == "tables":
-                db = database_context or "Customer_Insight"
-                return [
-                    {"name": "users", "database": db, "schema": "public"},
-                    {"name": "orders", "database": db, "schema": "public"},
-                    {"name": "products", "database": db, "schema": "public"},
-                    {"name": "discounts", "database": db, "schema": "public"},
-                    {"name": "visits", "database": db, "schema": "public"}
-                ]
-            return []
-
-        if self.pool is None:
-            return []
-
-        conn = self.pool.get_connection()
-        cursor = conn.cursor()
-        try:
-            results = []
-            if target == "databases":
-                cursor.execute("SHOW DATABASES")
-                results = [r[0] for r in cursor.fetchall()]
-            elif target == "schemas":
-                # In MySQL, schema is synonymous with database
-                cursor.execute("SHOW DATABASES")
-                results = [r[0] for r in cursor.fetchall()]
-            elif target == "tables":
-                db = database_context or self.config.get("database") or self.config.get("schema")
-                if db:
-                    cursor.execute(f"SHOW TABLES FROM `{db}`")
-                    results = [{"name": r[0], "database": db, "schema": "public"} for r in cursor.fetchall()]
-                else:
-                    # Discover all tables in all non-system databases
-                    results = []
+            cursor = conn.cursor()
+            try:
+                results = []
+                if target == "databases":
                     cursor.execute("SHOW DATABASES")
-                    dbs = [r[0] for r in cursor.fetchall()]
-                    system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
-                    for current_db in dbs:
-                        if current_db.lower() not in system_dbs:
-                            cursor.execute(f"SHOW TABLES FROM `{current_db}`")
-                            results.extend([{"name": r[0], "database": current_db, "schema": "public"} for r in cursor.fetchall()])
-            return results
-        finally:
-            cursor.close()
-            conn.close()
+                    results = [r[0] for r in cursor.fetchall()]
+                elif target == "schemas":
+                    # In MySQL, schema is synonymous with database
+                    cursor.execute("SHOW DATABASES")
+                    results = [r[0] for r in cursor.fetchall()]
+                elif target == "tables":
+                    db = kwargs.get("database_name") or self.config.get("database") or self.config.get("schema")
+                    if db:
+                        cursor.execute(f"SHOW TABLES FROM `{db}`")
+                        results = [{"name": r[0], "database": db, "schema": "public"} for r in cursor.fetchall()]
+                    else:
+                        # Discover all tables in all non-system databases
+                        results = []
+                        cursor.execute("SHOW DATABASES")
+                        dbs = [r[0] for r in cursor.fetchall()]
+                        system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
+                        for current_db in dbs:
+                            if current_db.lower() not in system_dbs:
+                                cursor.execute(f"SHOW TABLES FROM `{current_db}`")
+                                results.extend([{"name": r[0], "database": current_db, "schema": "public"} for r in cursor.fetchall()])
+                return results
+            finally:
+                cursor.close()
 
 
 
@@ -258,162 +257,145 @@ class MySQLConnector(BaseConnector):
                 conn.close()
         return False
 
+    @runtime_monitor.trace_and_heal(component="mysql")
     async def discover_schema(self) -> List[Dict[str, Any]]:
-        if self.pool == "MOCK_POOL":
-            return [
-                {
-                    "schema": "public", 
-                    "name": "users", 
-                    "columns": [
-                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "email", "type": "varchar(255)", "nullable": False},
-                        {"name": "created_at", "type": "timestamp", "nullable": False}
-                    ],
-                    "primary_key": "id",
-                    "recommended_cursor": "created_at"
-                },
-                {
-                    "schema": "public", 
-                    "name": "orders", 
-                    "columns": [
-                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "user_id", "type": "int", "nullable": False},
-                        {"name": "amount", "type": "decimal(10,2)", "nullable": False},
-                        {"name": "order_date", "type": "timestamp", "nullable": False}
-                    ],
-                    "primary_key": "id",
-                    "recommended_cursor": "order_date"
-                },
-                {
-                    "schema": "shop", 
-                    "name": "products", 
-                    "columns": [
-                        {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
-                        {"name": "name", "type": "varchar(100)", "nullable": False},
-                        {"name": "price", "type": "decimal(10,2)", "nullable": False}
-                    ],
-                    "primary_key": "id"
-                }
-            ]
-        if self.pool is None:
-
-            return []
-
-
-        conn = None
-        cursor = None
-        try:
-            conn = self.pool.get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    TABLE_SCHEMA as schema_name,
-                    TABLE_NAME as table_name,
-                    COLUMN_NAME as column_name,
-                    DATA_TYPE as data_type,
-                    IS_NULLABLE as is_nullable,
-                    COLUMN_KEY as column_key
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-                ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
-            """)
-
-            tables: Dict[str, Any] = {}
-            for row in cursor.fetchall():
-                schema_name, table_name, column_name, data_type, is_nullable, column_key = row
-                key = f"{schema_name}.{table_name}"
-                if key not in tables:
-                    tables[key] = {
-                        "schema": schema_name,
-                        "name": table_name,
-                        "columns": [],
-                        "primary_key": None,
-                        "recommended_cursor": None
+        async with self.connection() as conn:
+            if conn == "MOCK_POOL":
+                return [
+                    {
+                        "schema": "public", 
+                        "name": "users", 
+                        "columns": [
+                            {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "email", "type": "varchar(255)", "nullable": False},
+                            {"name": "created_at", "type": "timestamp", "nullable": False}
+                        ],
+                        "primary_key": "id",
+                        "recommended_cursor": "created_at"
+                    },
+                    {
+                        "schema": "public", 
+                        "name": "orders", 
+                        "columns": [
+                            {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "user_id", "type": "int", "nullable": False},
+                            {"name": "amount", "type": "decimal(10,2)", "nullable": False},
+                            {"name": "order_date", "type": "timestamp", "nullable": False}
+                        ],
+                        "primary_key": "id",
+                        "recommended_cursor": "order_date"
+                    },
+                    {
+                        "schema": "shop", 
+                        "name": "products", 
+                        "columns": [
+                            {"name": "id", "type": "int", "nullable": False, "is_primary_key": True},
+                            {"name": "name", "type": "varchar(100)", "nullable": False},
+                            {"name": "price", "type": "decimal(10,2)", "nullable": False}
+                        ],
+                        "primary_key": "id"
                     }
-                
-                is_pk = column_key == 'PRI'
-                tables[key]["columns"].append({
-                    "name": column_name,
-                    "type": data_type,
-                    "nullable": is_nullable == "YES",
-                    "is_primary_key": is_pk
-                })
-
-                if is_pk:
-                    tables[key]["primary_key"] = column_name
-
-                # Timestamp detection heuristic for recommended cursor
-                ts_keywords = ['updated', 'modified', 'created', 'timestamp', 'time', 'date', 'at']
-                is_ts_type = any(t in data_type.lower() for t in ['timestamp', 'datetime', 'date'])
-                is_ts_name = any(k in column_name.lower() for k in ts_keywords)
-                
-                if is_ts_type or is_ts_name:
-                    if not tables[key]["recommended_cursor"] or 'updated' in column_name.lower() or 'modified' in column_name.lower():
-                        tables[key]["recommended_cursor"] = column_name
-
-            return list(tables.values())
-        except Exception as e:
-            print(f"MySQL schema discovery error: {e}")
-            return []
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-        return []
-
-    async def read_records(self, table_name: str, sync_mode: str, cursor_val: Optional[Any] = None) -> List[Dict[str, Any]]:
-        if self.pool is None:
-            return []
-
-        conn = None
-        cursor = None
-        try:
-            conn = self.pool.get_connection()
-            cursor = conn.cursor(dictionary=True)
-            # MySQL backticks for identifiers
-            quoted_table = ".".join([f"`{p}`" for p in table_name.split(".")])
-            query = f"SELECT * FROM {quoted_table}"
-            params = []
+                ]
             
-            if sync_mode == "incremental" and cursor_val:
-                query += " WHERE `id` > %s"
-                params.append(cursor_val)
+            cursor = conn.cursor(dictionary=True)
+            try:
+                cursor.execute("""
+                    SELECT 
+                        TABLE_SCHEMA as schema_name,
+                        TABLE_NAME as table_name,
+                        COLUMN_NAME as column_name,
+                        DATA_TYPE as data_type,
+                        IS_NULLABLE as is_nullable,
+                        COLUMN_KEY as column_key
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                    ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+                """)
+
+                tables: Dict[str, Any] = {}
+                for row in cursor.fetchall():
+                    schema_name, table_name, column_name, data_type, is_nullable, column_key = row['schema_name'], row['table_name'], row['column_name'], row['data_type'], row['is_nullable'], row['column_key']
+                    key = f"{schema_name}.{table_name}"
+                    if key not in tables:
+                        tables[key] = {
+                            "schema": schema_name,
+                            "name": table_name,
+                            "columns": [],
+                            "primary_key": None,
+                            "recommended_cursor": None
+                        }
+                    
+                    is_pk = column_key == 'PRI'
+                    tables[key]["columns"].append({
+                        "name": column_name,
+                        "type": data_type,
+                        "nullable": is_nullable == "YES",
+                        "is_primary_key": is_pk
+                    })
+
+                    if is_pk:
+                        tables[key]["primary_key"] = column_name
+
+                    # Timestamp detection heuristic for recommended cursor
+                    ts_keywords = ['updated', 'modified', 'created', 'timestamp', 'time', 'date', 'at']
+                    is_ts_type = any(t in data_type.lower() for t in ['timestamp', 'datetime', 'date'])
+                    is_ts_name = any(k in column_name.lower() for k in ts_keywords)
+                    
+                    if is_ts_type or is_ts_name:
+                        if not tables[key]["recommended_cursor"] or 'updated' in column_name.lower() or 'modified' in column_name.lower():
+                            tables[key]["recommended_cursor"] = column_name
+
+                return list(tables.values())
+            except Exception as e:
+                print(f"MySQL schema discovery error: {e}")
+                return []
+            finally:
+                if cursor:
+                    cursor.close()
+
+    @runtime_monitor.trace_and_heal(component="mysql")
+    async def read_records(self, table_name: str, sync_mode: str, cursor_val: Optional[Any] = None) -> List[Dict[str, Any]]:
+        async with self.connection() as conn:
+            if conn == "MOCK_POOL": return []
                 
-            cursor.execute(query, params)
-            return cursor.fetchall()
-        except Exception as e:
-            print(f"MySQL read error: {e}")
-            return []
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+            cursor = conn.cursor(dictionary=True)
+            try:
+                # MySQL backticks for identifiers
+                quoted = ".".join([f"`{p}`" for p in table_name.split(".")])
+                query = f"SELECT * FROM {quoted}"
+                params = []
+                
+                if sync_mode == "incremental" and cursor_val:
+                    query += " WHERE `id` > %s"
+                    params.append(cursor_val)
+                    
+                cursor.execute(query, params)
+                return cursor.fetchall()
+            except Exception as e:
+                print(f"MySQL read error: {e}")
+                return []
+            finally:
+                if cursor:
+                    cursor.close()
 
+    @runtime_monitor.trace_and_heal(component="mysql")
     async def write_records(self, table_name: str, records: List[Dict[str, Any]]) -> bool:
-        if self.pool is None or not records:
-            return False
-
-        conn = None
-        cursor = None
-        try:
-            conn = self.pool.get_connection()
+        if not records: return False
+        async with self.connection() as conn:
+            if conn == "MOCK_POOL": return True
             cursor = conn.cursor()
-            keys = list(records[0].keys())
-            quoted_table = ".".join([f"`{p}`" for p in table_name.split(".")])
-            columns = ", ".join([f"`{k}`" for k in keys])
-            placeholders = ", ".join(["%s" for _ in keys])
-            query = f"INSERT INTO {quoted_table} ({columns}) VALUES ({placeholders})"
-            data = [[record[k] for k in keys] for record in records]
-            cursor.executemany(query, data)
-            conn.commit()
-            return True
-        except Exception as e:
-            print(f"MySQL write error: {e}")
-            return False
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+            try:
+                keys = list(records[0].keys())
+                quoted = ".".join([f"`{p}`" for p in table_name.split(".")])
+                columns = ", ".join([f"`{k}`" for k in keys])
+                placeholders = ", ".join(["%s"] * len(keys))
+                query = f"INSERT INTO {quoted} ({columns}) VALUES ({placeholders})"
+                cursor.executemany(query, [[r[k] for k in keys] for r in records])
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"MySQL write error: {e}")
+                return False
+            finally:
+                if cursor:
+                    cursor.close()

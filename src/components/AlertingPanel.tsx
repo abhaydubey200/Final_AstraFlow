@@ -7,6 +7,20 @@ import {
   CheckCircle, XCircle, Loader2, BellOff, AlertTriangle, Zap,
 } from "lucide-react";
 
+interface AlertRule {
+  id: string;
+  pipeline_id?: string | null;
+  alert_name: string;
+  channel: "webhook" | "email" | "slack";
+  trigger_on: string[];
+  webhook_url?: string | null;
+  email_address?: string | null;
+  slack_webhook?: string | null;
+  threshold_minutes?: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
 const TRIGGER_OPTIONS = [
   { value: "failure",           label: "Pipeline Failure",    icon: XCircle,      color: "text-red-400" },
   { value: "success",           label: "Pipeline Success",    icon: CheckCircle,  color: "text-emerald-400" },
@@ -22,7 +36,7 @@ function useAlerts(pipelineId?: string) {
     queryKey: ["pipeline_alerts", pipelineId],
     queryFn: async () => {
       const params = pipelineId ? { pipeline_id: pipelineId } : {};
-      return apiClient.get<any[]>("/monitoring/alert-rules", params);
+      return apiClient.get<AlertRule[]>("/monitoring/alert-rules", params);
     },
   });
 }
@@ -30,8 +44,8 @@ function useAlerts(pipelineId?: string) {
 function useCreateAlert() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: any) => {
-      return apiClient.post("/monitoring/alert-rules", payload);
+    mutationFn: async (payload: Omit<AlertRule, "id">) => {
+      return apiClient.post<AlertRule>("/monitoring/alert-rules", payload);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pipeline_alerts"] }),
   });
@@ -88,7 +102,7 @@ export default function AlertingPanel({ pipelineId }: { pipelineId?: string }) {
         setShowForm(false);
         setAlertName(""); setWebhookUrl(""); setEmail(""); setSlackUrl(""); setTriggers(["failure"]);
       },
-      onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+      onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
     });
   };
 
@@ -213,7 +227,7 @@ export default function AlertingPanel({ pipelineId }: { pipelineId?: string }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {alerts.map((alert: any) => {
+          {alerts.map((alert: AlertRule) => {
             const Icon = CHANNEL_ICONS[alert.channel] || Globe;
             return (
               <div key={alert.id} className="flex items-start gap-3 px-4 py-3 rounded-lg border border-border bg-card hover:bg-muted/10 transition-colors">

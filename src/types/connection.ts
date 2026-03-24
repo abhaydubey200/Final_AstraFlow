@@ -33,7 +33,7 @@ export interface Connection {
   capabilities?: ConnectionCapabilities;
   performance?: ConnectionPerformance;
   selected_tables: string[];
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   last_tested_at: string | null;
   created_by: string | null;
   created_at: string;
@@ -54,7 +54,7 @@ export interface ConnectionFormData {
   security_level: "standard" | "high";
   timeout_seconds: number;
   selected_tables?: string[];
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 
 export const CONNECTION_TYPE_LABELS: Record<ConnectionType, string> = {

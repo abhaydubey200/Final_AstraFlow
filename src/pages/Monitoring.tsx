@@ -21,6 +21,8 @@ import {
 interface SystemMetrics {
   cpu_usage: number;
   memory_usage: number;
+  rowsPerSec?: number;
+  queuePending?: number;
 }
 
 interface Worker {
@@ -30,6 +32,24 @@ interface Worker {
   uptime: string;
   cpu: number;
   ram: number;
+}
+
+interface HealingStatus {
+  canary_status: {
+    api?: { status: string };
+    connections?: { status: string };
+    pipelines?: { status: string };
+  };
+}
+
+interface HealingLog {
+  id: string;
+  timestamp: string;
+  component: string;
+  issue: string;
+  trace_id?: string;
+  action: string;
+  status: 'success' | 'in_progress' | 'failed';
 }
 
 export default function Monitoring() {
@@ -50,17 +70,19 @@ export default function Monitoring() {
     onSuccess: () => refetchWorkers()
   });
 
-  const { data: healingStatus = { canary_status: {} } } = useQuery<any>({
+  const { data: healingStatus = { canary_status: {} } } = useQuery<HealingStatus>({
     queryKey: ["self-healing-status"],
     queryFn: () => apiClient.get("/self-healing/status"),
     refetchInterval: 5000
   });
 
-  const { data: healingLogs = [] } = useQuery<any[]>({
+  const { data: healingLogs = [] } = useQuery<HealingLog[]>({
     queryKey: ["self-healing-logs"],
     queryFn: () => apiClient.get("/self-healing/logs"),
     refetchInterval: 5000
   });
+
+  const qPending = system?.queuePending || 0;
 
   return (
     <div className="p-6 lg:p-8 space-y-8 animate-in fade-in duration-500">
@@ -72,10 +94,10 @@ export default function Monitoring() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricBox label="Global CPU Load" value={`${(system as any).cpu_usage || 0}%`} icon={Cpu} />
-        <MetricBox label="Throughput" value={`${(system as any).rowsPerSec || 0} r/s`} icon={Zap} />
+        <MetricBox label="Global CPU Load" value={`${system?.cpu_usage || 0}%`} icon={Cpu} />
+        <MetricBox label="Throughput" value={`${system?.rowsPerSec || 0} r/s`} icon={Zap} />
         <MetricBox label="Active Workers" value={cluster.filter(w => w.status === 'healthy').length} icon={Activity} />
-        <MetricBox label="Queue Depth" value={`${(system as any).queuePending || 0} jobs`} icon={Clock} variant={(system as any).queuePending > 10 ? 'warning' : 'default'} />
+        <MetricBox label="Queue Depth" value={`${qPending} jobs`} icon={Clock} variant={qPending > 10 ? 'warning' : 'default'} />
       </div>
 
       <Tabs defaultValue="system" className="space-y-6">
@@ -274,7 +296,7 @@ export default function Monitoring() {
                    <CardContent className="grid grid-cols-2 gap-4">
                       <div className="p-3 rounded-lg bg-muted/50 border border-border">
                          <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Total Fixes</p>
-                         <p className="text-xl font-display font-bold">{healingLogs.filter((l: any) => l.status === 'success').length}</p>
+                         <p className="text-xl font-display font-bold">{healingLogs.filter((l: HealingLog) => l.status === 'success').length}</p>
                       </div>
                       <div className="p-3 rounded-lg bg-muted/50 border border-border">
                          <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Engine Latency</p>

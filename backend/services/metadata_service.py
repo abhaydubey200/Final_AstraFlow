@@ -18,7 +18,13 @@ class MetadataService:
             async with conn.transaction():
                 for table_meta in tables_metadata:
                     # 1. Ensure Schema exists
-                    schema_name = table_meta.get('schema', 'public')
+                    schema_name = table_meta.get('schema') or table_meta.get('schema_name') or 'public'
+                    table_name = table_meta.get('name') or table_meta.get('table_name')
+                    
+                    if not table_name:
+                        print(f"Warning: Skipping table with missing name in connection {connection_id}")
+                        continue
+
                     schema_record = await conn.fetchrow(
                         "INSERT INTO schemas (connection_id, schema_name) VALUES ($1, $2) "
                         "ON CONFLICT (connection_id, schema_name) DO UPDATE SET schema_name = EXCLUDED.schema_name "
@@ -32,22 +38,26 @@ class MetadataService:
                         "INSERT INTO tables (schema_id, table_name) VALUES ($1, $2) "
                         "ON CONFLICT (schema_id, table_name) DO UPDATE SET table_name = EXCLUDED.table_name "
                         "RETURNING id",
-                        schema_id, table_meta['name']
+                        schema_id, table_name
                     )
                     table_id = table_record['id']
 
                     # 3. Batch Insert Columns
                     columns = table_meta.get('columns', [])
                     if columns:
-                        column_data = [
-                            (table_id, col['name'], col['data_type'], col.get('is_nullable', True))
-                            for col in columns
-                        ]
-                        await conn.executemany(
-                            "INSERT INTO columns (table_id, column_name, data_type, is_nullable) "
-                            "VALUES ($1, $2, $3, $4) ON CONFLICT (table_id, column_name) DO NOTHING",
-                            column_data
-                        )
+                        column_data = []
+                        for col in columns:
+                            col_name = col.get('name') or col.get('column_name')
+                            col_type = col.get('type') or col.get('data_type') or 'unknown'
+                            if col_name:
+                                column_data.append((table_id, col_name, col_type, col.get('is_nullable', True)))
+
+                        if column_data:
+                            await conn.executemany(
+                                "INSERT INTO columns (table_id, column_name, data_type, is_nullable) "
+                                "VALUES ($1, $2, $3, $4) ON CONFLICT (table_id, column_name) DO NOTHING",
+                                column_data
+                            )
             
             return {"status": "success", "tables_count": len(tables_metadata)}
 

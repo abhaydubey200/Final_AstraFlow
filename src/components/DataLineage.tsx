@@ -7,16 +7,26 @@ interface Node extends d3.SimulationNodeDatum {
   id: string;
   name: string;
   type: "dataset" | "pipeline";
-  subType?: string; // connection name for datasets, status for pipelines
+  subType?: string;
+  x?: number;
+  y?: number;
+  fx?: number | null;
+  fy?: number | null;
 }
 
 interface Link extends d3.SimulationLinkDatum<Node> {
-  source: string;
-  target: string;
+  source: string | Node;
+  target: string | Node;
+}
+
+interface LineageData {
+  pipelines: Array<{ id: string; name: string; status: string }>;
+  datasets: Array<{ id: string; name: string; connection_id: string }>;
+  dependencies: Array<{ upstream_dataset?: string; downstream_dataset?: string; pipeline_id: string }>;
 }
 
 export default function DataLineage() {
-  const { data, isLoading } = useEnterpriseLineage();
+  const { data, isLoading } = useEnterpriseLineage() as { data: LineageData; isLoading: boolean };
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
@@ -36,17 +46,17 @@ export default function DataLineage() {
     const links: Link[] = [];
 
     // Add Pipeline Nodes
-    data.pipelines.forEach((p: any) => {
+    data.pipelines.forEach((p) => {
       nodes.push({ id: `pipe-${p.id}`, name: p.name, type: "pipeline", subType: p.status });
     });
 
     // Add Dataset Nodes
-    data.datasets.forEach((d: any) => {
+    data.datasets.forEach((d) => {
       nodes.push({ id: `data-${d.id}`, name: d.name, type: "dataset", subType: d.connection_id });
     });
 
     // Add Edges from dependencies table
-    data.dependencies.forEach((dep: any) => {
+    data.dependencies.forEach((dep) => {
       if (dep.upstream_dataset) {
         links.push({ source: `data-${dep.upstream_dataset}`, target: `pipe-${dep.pipeline_id}` });
       }
@@ -56,8 +66,8 @@ export default function DataLineage() {
     });
 
     // Handle isolated nodes if needed, or just let them float
-    const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
+    const simulation = d3.forceSimulation<Node>(nodes)
+      .force("link", d3.forceLink<Node, Link>(links).id((d) => d.id).distance(150))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("x", d3.forceX(width / 2).strength(0.05))
@@ -97,16 +107,16 @@ export default function DataLineage() {
 
     // Draw Nodes
     const node = g.append("g")
-      .selectAll("g")
+      .selectAll<SVGGElement, Node>("g")
       .data(nodes)
       .join("g")
-      .call(d3.drag<any, any>()
+      .call(d3.drag<SVGGElement, Node>()
         .on("start", dragstarted)
         .on("drag", dragged)
-        .on("end", dragended) as any);
+        .on("end", dragended));
 
     // Shapes based on type
-    node.each(function(d: any) {
+    node.each(function(d) {
       const el = d3.select(this);
       if (d.type === "dataset") {
         // Cylinders for Datasets
@@ -138,28 +148,30 @@ export default function DataLineage() {
       .text(d => `${d.type.toUpperCase()}: ${d.name}\n${d.subType || ''}`);
 
     simulation.on("tick", () => {
-      link.attr("d", (d: any) => {
-        const dx = d.target.x - d.source.x,
-              dy = d.target.y - d.source.y,
+      link.attr("d", (d) => {
+        const source = d.source as Node;
+        const target = d.target as Node;
+        const dx = (target.x || 0) - (source.x || 0),
+              dy = (target.y || 0) - (source.y || 0),
               dr = Math.sqrt(dx * dx + dy * dy);
-        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+        return `M${source.x || 0},${source.y || 0}A${dr},${dr} 0 0,1 ${target.x || 0},${target.y || 0}`;
       });
 
-      node.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+      node.attr("transform", (d) => `translate(${d.x || 0},${d.y || 0})`);
     });
 
-    function dragstarted(event: any) {
+    function dragstarted(event: d3.D3DragEvent<SVGGElement, Node, Node>) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
       event.subject.fx = event.subject.x;
       event.subject.fy = event.subject.y;
     }
 
-    function dragged(event: any) {
+    function dragged(event: d3.D3DragEvent<SVGGElement, Node, Node>) {
       event.subject.fx = event.x;
       event.subject.fy = event.y;
     }
 
-    function dragended(event: any) {
+    function dragended(event: d3.D3DragEvent<SVGGElement, Node, Node>) {
       if (!event.active) simulation.alphaTarget(0);
       event.subject.fx = null;
       event.subject.fy = null;

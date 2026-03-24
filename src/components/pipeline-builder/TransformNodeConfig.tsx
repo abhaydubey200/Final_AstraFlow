@@ -9,9 +9,9 @@ interface Props {
 }
 
 export default function TransformNodeConfig({ node, onUpdate }: Props) {
-  const [mode, setMode] = useState<"sql" | "js">(node.config.transform_mode as any || "sql");
+  const [mode, setMode] = useState<"sql" | "js">((node.config.transform_mode as "sql" | "js") || "sql");
 
-  const updateConfig = (updates: Record<string, string>) => {
+  const updateConfig = (updates: Record<string, unknown>) => {
     onUpdate(node.id, { config: { ...node.config, ...updates } });
   };
 
@@ -52,7 +52,7 @@ export default function TransformNodeConfig({ node, onUpdate }: Props) {
              <span className="text-[9px] font-mono font-black uppercase text-muted-foreground">{mode}</span>
           </div>
           <textarea
-            value={node.config.logic || ""}
+            value={(node.config.logic as string) || ""}
             onChange={(e) => updateConfig({ logic: e.target.value })}
             placeholder={mode === "sql" 
               ? "-- Use {{source}} to reference input\nSELECT * FROM {{source}} WHERE processed = false" 

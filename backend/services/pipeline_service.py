@@ -451,6 +451,10 @@ class PipelineService:
             rows = await conn.fetch(query, *params)
             return [dict(r) for r in rows]
 
+    async def get_logs(self, run_id: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """Alias for get_run_logs for API consistency across services."""
+        return await self.get_run_logs(run_id, filters)
+
     async def list_all_nodes(self) -> List[Dict[str, Any]]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM pipeline_nodes ORDER BY order_index")

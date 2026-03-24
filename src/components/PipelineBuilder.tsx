@@ -57,7 +57,7 @@ const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initia
   const nodesWithStatus = useMemo(() => {
     return nodes.map(n => ({
         ...n,
-        status: nodeStatuses[n.id] as any
+        status: nodeStatuses[n.id] as BuilderNode["status"]
     }));
   }, [nodes, nodeStatuses]);
 
@@ -65,9 +65,9 @@ const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initia
     try {
       const mappedNodes = nodes.map((n, i) => ({
         id: n.id,
-        node_type: n.type as any,
+        node_type: n.type,
         label: n.label,
-        config_json: n.config as any,
+        config_json: n.config,
         position_x: n.x,
         position_y: n.y,
         order_index: i,
@@ -86,30 +86,31 @@ const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initia
           name: name,
           nodes: mappedNodes,
           edges: mappedEdges,
-          execution_mode: 'DAG' // Set to DAG mode for Phase 3
-        } as any);
+          execution_mode: 'DAG'
+        });
         toast({ title: "Pipeline updated to DAG mode" });
       } else {
         await createPipeline.mutateAsync({
           pipeline: {
             name: name,
-            description: null,
+            description: "",
             status: "draft",
             schedule_type: "manual",
-            schedule_config: {} as any,
-            created_by: null,
-            last_run_at: null,
-            next_run_at: null,
+            schedule_config: {},
+            created_by: undefined,
+            last_run_at: undefined,
+            next_run_at: undefined,
             execution_mode: 'DAG'
           },
           nodes: mappedNodes,
-          edges: mappedEdges as any,
+          edges: mappedEdges,
         });
         toast({ title: "Pipeline saved in DAG mode" });
         onBack();
       }
-    } catch (err: any) {
-      toast({ title: "Error saving", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Error saving", description: message, variant: "destructive" });
     }
   };
 
@@ -162,12 +163,11 @@ const PipelineBuilder = ({ onBack, pipelineId, initialName, initialNodes, initia
               triggerRun.mutate(
                 { pipelineId, userId: user?.id },
                 {
-                  onSuccess: (data: any) => {
+                  onSuccess: (data: { run_id?: string; id?: string }) => {
                     toast({ title: "Pipeline execution started", description: "Watch logs for real-time progress." });
-                    if (data && data.id) {
-                      setActiveRunId(data.id);
-                    } else if (data && data.run_id) {
-                      setActiveRunId(data.run_id);
+                    const runId = data?.run_id || data?.id;
+                    if (runId) {
+                      setActiveRunId(runId);
                     }
                   },
                   onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),

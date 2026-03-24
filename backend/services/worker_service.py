@@ -180,6 +180,13 @@ class WorkerService:
                 # Mark this job complete
                 await self.update_job_status(str(job_id), "completed")
                 await self._update_stage_node_status(str(run_id), stage, "success")
+                
+                # Update last_successful_stage
+                async with self.pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE public.pipeline_runs SET last_successful_stage = $1 WHERE id = $2",
+                        stage, run_id
+                    )
 
                 # Advance to next stage or finalize run
                 next_stages = {'extract': 'transform', 'transform': 'validate', 'validate': 'load'}

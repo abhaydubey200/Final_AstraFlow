@@ -25,3 +25,11 @@ class ParquetUtils:
         df.to_parquet(file_path, engine='pyarrow', compression='snappy', index=False)
         
         return file_path
+
+    @staticmethod
+    def read_parquet_records(file_path: str) -> List[Dict[str, Any]]:
+        """Reads a local Parquet file and returns a list of records."""
+        if not os.path.exists(file_path):
+            return []
+        df = pd.read_parquet(file_path, engine='pyarrow')
+        return df.to_dict(orient='records')

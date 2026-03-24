@@ -17,8 +17,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 
+import { CatalogDataset } from "./Catalog";
+
 interface DatasetDetailProps {
-  dataset: any;
+  dataset: CatalogDataset & { columns?: any[] }; // Temporary bridge until columns are fully typed
   onBack: () => void;
 }
 

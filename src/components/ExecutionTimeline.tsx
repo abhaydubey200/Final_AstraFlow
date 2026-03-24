@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress";
 export interface TaskState {
   id: string;
   name: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: "pending" | "running" | "success" | "failed" | "retrying";
   progress: number;
   duration?: string;
 }
@@ -34,11 +34,13 @@ export const ExecutionTimeline = ({ tasks, className }: ExecutionTimelineProps) 
               task.status === "success" ? "border-success text-success" :
               task.status === "running" ? "border-primary text-primary" :
               task.status === "failed" ? "border-destructive text-destructive" :
+              task.status === "retrying" ? "border-warning text-warning" :
               "border-muted text-muted-foreground"
             )}>
               {task.status === "success" && <CheckCircle2 className="w-3.5 h-3.5" />}
               {task.status === "running" && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               {task.status === "failed" && <AlertCircle className="w-3.5 h-3.5" />}
+              {task.status === "retrying" && <Clock className="w-3.5 h-3.5 animate-pulse" />}
               {task.status === "pending" && <Circle className="w-3.5 h-3.5 fill-current opacity-20" />}
             </div>
             

@@ -13,22 +13,20 @@ interface Props {
 
 export default function LoadNodeConfig({ node, onUpdate }: Props) {
   const { data: connections = [] } = useConnections();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [mode, setMode] = useState<"existing" | "auto">(node.config.load_mode as any || "existing");
+  const [mode, setMode] = useState<"existing" | "auto">((node.config.load_mode as "existing" | "auto") || "existing");
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const selectedConnectionId = node.config.target_connection_id || "";
+  const selectedConnectionId = (node.config.target_connection_id as string) || "";
   const selectedConnection = connections.find(c => c.id === selectedConnectionId);
   
-  const selectedTable = node.config.target_table || "";
-  const selectedSchema = node.config.target_schema || "";
-  const selectedDatabase = node.config.target_database || "";
-  const selectedWarehouse = node.config.target_warehouse || "";
+  const selectedTable = (node.config.target_table as string) || "";
+  const selectedSchema = (node.config.target_schema as string) || "";
+  const selectedDatabase = (node.config.target_database as string) || "";
+  const selectedWarehouse = (node.config.target_warehouse as string) || "";
   
-  const newTableName = node.config.new_table_name || "";
+  const newTableName = (node.config.new_table_name as string) || "";
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateConfig = (updates: Record<string, any>) => {
+  const updateConfig = (updates: Record<string, unknown>) => {
     onUpdate(node.id, { config: { ...node.config, ...updates } });
   };
 
@@ -127,7 +125,7 @@ export default function LoadNodeConfig({ node, onUpdate }: Props) {
             <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Target Schema</label>
             <input
               type="text"
-              value={node.config.target_schema || "public"}
+              value={(node.config.target_schema as string) || "public"}
               onChange={(e) => updateConfig({ target_schema: e.target.value })}
               placeholder="public"
               className="w-full px-2.5 py-1.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
@@ -142,7 +140,7 @@ export default function LoadNodeConfig({ node, onUpdate }: Props) {
         <div className="space-y-2">
           <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Write Mode</label>
           <select
-            value={node.config.write_mode || "append"}
+            value={(node.config.write_mode as string) || "append"}
             onChange={(e) => updateConfig({ write_mode: e.target.value })}
             className="w-full px-2.5 py-1.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring appearance-none cursor-pointer"
           >

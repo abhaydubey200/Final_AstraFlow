@@ -13,17 +13,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import DatasetDetail from "./DatasetDetail";
 
+export interface CatalogDataset {
+  id: string;
+  dataset_name: string;
+  source_system: string;
+  description?: string;
+  has_pii: boolean;
+  owner?: string;
+  created_at: string;
+  updated_at: string;
+  schema_json: Record<string, unknown>;
+}
+
 export default function Catalog() {
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [selectedDataset, setSelectedDataset] = useState<any>(null);
+  const [selectedDataset, setSelectedDataset] = useState<CatalogDataset | null>(null);
   
   const { data: pipelines = [] } = usePipelines();
   const { data: connections = [] } = useConnections();
   
   const { data: datasets = [], isLoading: loadingDatasets } = useQuery({
     queryKey: ["catalog-datasets", search],
-    queryFn: () => apiClient.get<any[]>(`/catalog/search?q=${search}`),
+    queryFn: () => apiClient.get<CatalogDataset[]>(`/catalog/search?q=${search}`),
   });
 
   if (selectedDataset) {
@@ -92,7 +104,7 @@ export default function Catalog() {
             {loadingDatasets ? (
               [1, 2, 3].map(i => <div key={i} className="h-64 rounded-xl bg-muted/20 animate-pulse border border-border/50" />)
             ) : (
-              datasets.map((ds: any) => (
+              datasets.map((ds: CatalogDataset) => (
                 <DatasetCard 
                   key={ds.id} 
                   dataset={ds} 
@@ -178,7 +190,7 @@ export default function Catalog() {
   );
 }
 
-function DatasetCard({ dataset, viewMode, onClick }: { dataset: any, viewMode: 'grid' | 'list', onClick: () => void }) {
+function DatasetCard({ dataset, viewMode, onClick }: { dataset: CatalogDataset, viewMode: 'grid' | 'list', onClick: () => void }) {
   if (viewMode === 'list') {
     return (
       <div 

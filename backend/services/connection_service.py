@@ -6,6 +6,7 @@ import time
 import asyncio
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 from core.base_connector import BaseConnector
 from core.connector_registry import ConnectorRegistry
 from services.metadata_service import MetadataService
@@ -243,32 +244,35 @@ class ConnectionService:
             """, uuid.UUID(connection_id), float(latency))
 
     async def get_schema(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        connector_type = config.get("type") or config.get("connector_type")
-        connection_id = config.get("connection_id") or config.get("id")
+        """Discovers the schema for a connection, using cache if available."""
+        connection_id = config.get("id") or config.get("connection_id")
+        connector_type = (config.get("type") or config.get("connector_type") or "").lower()
         
-        # Check cache first
+        # If type is missing but we have an ID, fetch the connection from DB
+        if not connector_type and connection_id:
+            db_conn = await self.get_connection(str(connection_id))
+            if db_conn:
+                merged = dict(db_conn)
+                merged.update(config)
+                config = merged
+                connector_type = (config.get("type") or "").lower()
+
+        # 1. Normalize config
+        normalized_config = BaseConnector.normalize_config(config)
+        
+        # 2. Check cache if ID exists (unless force_refresh is requested)
         if connection_id and not config.get("force_refresh"):
-            cached = await self.metadata_service.get_cached_schema(connection_id)
-            if cached:
-                return {"tables": cached, "supported": True, "count": len(cached), "cached": True}
+            try:
+                # Validate UUID before passing to MetadataService
+                import uuid
+                uuid.UUID(str(connection_id))
+                cached = await self.metadata_service.get_cached_schema(str(connection_id))
+                if cached:
+                    return {"tables": cached, "supported": True, "count": len(cached), "cached": True}
+            except (ValueError, Exception) as e:
+                print(f"Warning: Metadata cache lookup failed or skipped for {connection_id}: {e}")
 
-        # Resolve password
-        password = config.get("password")
-        if not password and connection_id:
-            password = await self.secret_service.get_secret(connection_id, "password")
-
-        normalized_config = {
-            "host": config.get("host"),
-            "port": int(config.get("port") or 0),
-            "database": config.get("database_name") or config.get("database"),
-            "database_name": config.get("database_name") or config.get("database"),
-            "user": config.get("username") or config.get("user"),
-            "username": config.get("username") or config.get("user"),
-            "password": password,
-            "ssl_enabled": config.get("ssl_enabled", False),
-            "ssl": config.get("ssl_enabled", False)
-        }
-        
+        # 3. Perform live discovery
         try:
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
             connector = connector_class(normalized_config)
@@ -278,10 +282,12 @@ class ConnectionService:
                 timeout=30.0
             )
 
+            if tables_data is None:
+                return {"tables": [], "supported": False, "message": "Could not connect to service"}
+
             # --- Intelligent Recommendation ---
             capabilities = connector.get_capabilities()
-            resolved_tables = tables_data or []
-            for table in resolved_tables:
+            for table in tables_data:
                 rec_mode = "full_refresh"
                 reason = "No primary key or reliable cursor found"
                 
@@ -297,16 +303,26 @@ class ConnectionService:
                     "reason": reason
                 }
             
-            if tables_data is not None:
-                if connection_id:
+            # 5. Save to metadata repository if we have a valid UUID
+            if connection_id and tables_data:
+                try:
+                    import uuid
+                    uuid.UUID(str(connection_id))
                     await self.metadata_service.save_schema(str(connection_id), tables_data)
-                return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
-            return {"tables": [], "supported": False, "message": "Could not connect to service"}
-        except asyncio.TimeoutError:
-            return {"tables": [], "supported": False, "message": "Schema discovery timed out after 30 seconds"}
+                except (ValueError, Exception) as e:
+                    print(f"Warning: Could not save schema for connection {connection_id}: {e}")
+
+            return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
+
         except ValueError as e:
-            return {"tables": [], "supported": False, "message": str(e)}
+            return {"tables": [], "supported": False, "message": f"Unsupported connector: {str(e)}"}
+        except asyncio.TimeoutError:
+            return {"tables": [], "supported": False, "message": "Discovery timed out after 30s"}
         except Exception as e:
+            with open("discovery_error.txt", "a") as f:
+                import traceback
+                f.write(f"\n--- Error in get_schema at {datetime.now()} ---\n")
+                traceback.print_exc(file=f)
             return {"tables": [], "supported": False, "message": f"Discovery error: {str(e)}"}
 
     async def _run_schema_discovery(self, connector: BaseConnector) -> Optional[List[Dict[str, Any]]]:
@@ -321,69 +337,93 @@ class ConnectionService:
             return None
 
     async def discover_resources(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        connector_type = (config.get("type") or config.get("connector_type") or "").lower()
-        target = config.get("target", "databases")
-        
-        # Normalize config
-        connection_id = config.get("connection_id") or config.get("id")
-        password = config.get("password")
-        if not password and connection_id:
-            password = await self.secret_service.get_secret(connection_id, "password")
-
-        normalized_config = {
-            "host": config.get("host"),
-            "port": int(config.get("port") or 0),
-            "database": config.get("database_name") or config.get("database"),
-            "database_name": config.get("database_name") or config.get("database"),
-            "user": config.get("username") or config.get("user"),
-            "username": config.get("username") or config.get("user"),
-            "password": password,
-            "ssl_enabled": config.get("ssl_enabled", False),
-            "ssl": config.get("ssl_enabled", False),
-            "warehouse": config.get("warehouse_name") or config.get("warehouse"),
-            "warehouse_name": config.get("warehouse_name") or config.get("warehouse"),
-            "schema": config.get("schema_name") or config.get("schema"),
-            "schema_name": config.get("schema_name") or config.get("schema")
-        }
-
-        results = []
-        connector = None
-
         try:
+            connection_id = config.get("connection_id") or config.get("id")
+            connector_type = (config.get("type") or config.get("connector_type") or "").lower()
+            
+            # If we have an ID, fetch the connection from DB to get host/user/etc.
+            if connection_id:
+                db_conn = await self.get_connection(str(connection_id))
+                if db_conn:
+                    # Merge db metadata with incoming config
+                    merged = dict(db_conn)
+                    merged.update(config)
+                    config = merged
+                    if not connector_type:
+                        connector_type = (config.get("type") or "").lower()
+
+            target = config.get("target", "databases")
+            
+            # Use unified normalization
+            normalized_config = BaseConnector.normalize_config(config)
+            
+            # Ensure password is included
+            has_password = bool(normalized_config.get("password"))
+            if not has_password and connection_id:
+                secret_password = await self.secret_service.get_secret(str(connection_id), "password")
+                if secret_password:
+                    normalized_config["password"] = secret_password
+                    has_password = True
+                
+            # DEBUG: Log discovery attempt
+            with open("discovery_error.txt", "a") as f:
+                f.write(f"\n--- Discovery Attempt --- {datetime.now()}\n")
+                f.write(f"Connection ID: {connection_id}\n")
+                f.write(f"Connector Type: {connector_type}\n")
+                f.write(f"Target: {target}\n")
+                f.write(f"Has Password: {has_password}\n")
+                if has_password:
+                    f.write(f"Password Length: {len(normalized_config.get('password', ''))}\n")
+                else:
+                    f.write("WARNING: No password found for discovery!\n")
+                f.write(f"Normalized Config Keys: {list(normalized_config.keys())}\n")
+
+            results = []
+            connector = None
+
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
-            # Snowflake and others might need specialized logic for these targets,
-            # but for Phase 1 we'll keep the specialized logic here but use the registry for class instantiation.
-            # Move this logic into connectors in Phase 9 (Now!)
             connector = connector_class(normalized_config)
             
             if await connector.connect():
-                database_name = config.get("database_name")
+                # Prioritize database_name from config, then fallback to normalized_config
+                database_name = config.get("database_name") or config.get("database") or normalized_config.get("database")
+                
+                with open("discovery_error.txt", "a") as f:
+                    f.write(f"Discovery Context - DB: {database_name}\n")
+                
                 results = await connector.discover_resources(target, database_name=database_name)
                 await connector.disconnect()
 
-            
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            # Sort results safely
+            if results:
+                try:
+                    if isinstance(results[0], dict):
+                        results.sort(key=lambda x: str(x.get("name", "")))
+                    else:
+                        results.sort()
+                except Exception:
+                    pass
 
+            return {"results": results or []}
 
         except Exception as e:
-            print(f"Discovery error for {connector_type} target {target}: {e}")
-            if connector:
+            # Log to dedicated file for debugging
+            with open("discovery_error.txt", "a") as f:
+                import traceback
+                f.write(f"\n--- Global Error in discover_resources at {datetime.now()} ---\n")
+                f.write(f"Config keys: {list(config.keys())}\n")
+                f.write(f"Connector Type: {connector_type}\n")
+                traceback.print_exc(file=f)
+            
+            error_str = str(e)
+            if connector: 
                 try: await connector.disconnect()
                 except: pass
-            raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
             
-        # Sort results safely (handles both strings and dicts with 'name' key)
-        if results:
-            try:
-                if isinstance(results[0], dict):
-                    results.sort(key=lambda x: str(x.get("name", "")))
-                else:
-                    results.sort()
-            except Exception:
-                pass
-
-        return {"results": results or []}
+            if "snowflake" in connector_type and ("does not exist" in error_str.lower() or "not authorized" in error_str.lower()):
+                 raise HTTPException(status_code=403, detail=f"Snowflake Access Error: {error_str}")
+            
+            raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
 
 
     async def preview_data(self, config: Dict[str, Any]) -> Dict[str, Any]:

@@ -13,25 +13,23 @@ interface Props {
 
 export default function SourceNodeConfig({ node, onUpdate }: Props) {
   const { data: connections = [] } = useConnections();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [mode, setMode] = useState<"table" | "query" | "file">(node.config.source_mode as any || "table");
+  const [mode, setMode] = useState<"table" | "query" | "file">((node.config.source_mode as "table" | "query" | "file") || "table");
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const selectedConnectionId = node.config.connection_id || "";
+  const selectedConnectionId = (node.config.connection_id as string) || "";
   const selectedConnection = connections.find(c => c.id === selectedConnectionId);
   
-  const selectedTable = node.config.source_table || "";
-  const selectedSchema = node.config.source_schema || "";
-  const selectedDatabase = node.config.source_database || "";
-  const selectedWarehouse = node.config.source_warehouse || "";
+  const selectedTable = (node.config.source_table as string) || "";
+  const selectedSchema = (node.config.source_schema as string) || "";
+  const selectedDatabase = (node.config.source_database as string) || "";
+  const selectedWarehouse = (node.config.source_warehouse as string) || "";
   
-  const sqlQuery = node.config.sql_query || "";
-  const filePath = node.config.file_path || "";
-  const storageBucket = node.config.storage_bucket || "";
-  const fileFormat = node.config.file_format || "csv";
+  const sqlQuery = (node.config.sql_query as string) || "";
+  const filePath = (node.config.file_path as string) || "";
+  const storageBucket = (node.config.storage_bucket as string) || "";
+  const fileFormat = (node.config.file_format as string) || "csv";
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateConfig = (updates: Record<string, any>) => {
+  const updateConfig = (updates: Record<string, unknown>) => {
     onUpdate(node.id, { config: { ...node.config, ...updates } });
   };
 
@@ -180,7 +178,7 @@ export default function SourceNodeConfig({ node, onUpdate }: Props) {
         <div>
           <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Load Type</label>
           <select
-            value={node.config.extraction_mode || "full_load"}
+            value={(node.config.extraction_mode as string) || "full_load"}
             onChange={(e) => updateConfig({ extraction_mode: e.target.value })}
             className="w-full px-2.5 py-1.5 rounded-md border border-input bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >

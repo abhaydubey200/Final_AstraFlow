@@ -8,7 +8,7 @@ export interface BuilderNode {
   label: string;
   x: number;
   y: number;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   status?: "pending" | "running" | "success" | "failed";
 }
 

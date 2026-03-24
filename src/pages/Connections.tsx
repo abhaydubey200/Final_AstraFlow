@@ -137,9 +137,10 @@ const Connections = () => {
       if (!result.success) {
         toast({ title: "Connection failed", description: result.error, variant: "destructive" });
       }
-    } catch (err: any) {
-      setTestResult({ success: false, latency_ms: 0, error: err.message });
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setTestResult({ success: false, latency_ms: 0, error: message });
+      toast({ title: "Error", description: message, variant: "destructive" });
     }
   };
 
@@ -153,8 +154,9 @@ const Connections = () => {
         toast({ title: "New source bridge established" });
       }
       setOpen(false);
-    } catch (err: any) {
-      toast({ title: "Operation failed", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Operation failed", description: message, variant: "destructive" });
     }
   };
 
@@ -164,8 +166,9 @@ const Connections = () => {
       await deleteMutation.mutateAsync(deleteId);
       toast({ title: "Source bridge dismantled" });
       setDeleteId(null);
-    } catch (err: any) {
-      toast({ title: "Dismantle failed", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Dismantle failed", description: message, variant: "destructive" });
     }
   };
 

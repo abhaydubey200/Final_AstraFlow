@@ -24,6 +24,17 @@ import { Separator } from "@/components/ui/separator";
 
 type SyncMode = "full_refresh" | "incremental" | "cdc";
 
+interface WizardTable {
+  name: string;
+  schema?: string;
+  primary_key?: string;
+  recommended_cursor?: string;
+  recommendation?: {
+    mode: SyncMode;
+  };
+  columns?: Array<{ name: string; type: string }>;
+}
+
 interface TableSyncConfig {
   tableName: string;
   mode: SyncMode;
@@ -38,21 +49,22 @@ export default function SyncConfigPage() {
   const sourceId = searchParams.get("source");
   const configStr = searchParams.get("config");
   const tablesStr = searchParams.get("tables");
-  const selectedTablesList = tablesStr ? JSON.parse(decodeURIComponent(tablesStr)) : [];
+  const selectedTablesList = tablesStr ? (JSON.parse(decodeURIComponent(tablesStr)) as (string | WizardTable)[]) : [];
   
   const [syncConfigs, setSyncConfigs] = useState<Record<string, TableSyncConfig>>({});
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     const initial: Record<string, TableSyncConfig> = {};
-    selectedTablesList.forEach((t: any) => {
+    selectedTablesList.forEach((t) => {
       const name = typeof t === "string" ? t : t.name;
+      const tableObj = typeof t === "string" ? {} as WizardTable : t;
       initial[name] = {
         tableName: name,
-        mode: t.recommendation?.mode || "full_refresh",
-        primaryKey: t.primary_key || "",
-        cursorField: t.recommended_cursor || "",
-        columns: (t.columns || []).map((c: any) => ({
+        mode: tableObj.recommendation?.mode || "full_refresh",
+        primaryKey: tableObj.primary_key || "",
+        cursorField: tableObj.recommended_cursor || "",
+        columns: (tableObj.columns || []).map((c) => ({
            name: c.name,
            type: c.type,
            selected: true
@@ -62,7 +74,7 @@ export default function SyncConfigPage() {
     setSyncConfigs(initial);
   }, [tablesStr]);
 
-  const updateConfig = (tableName: string, field: keyof TableSyncConfig, value: any) => {
+  const updateConfig = (tableName: string, field: keyof TableSyncConfig, value: TableSyncConfig[keyof TableSyncConfig]) => {
     setSyncConfigs(prev => ({
       ...prev,
       [tableName]: { ...prev[tableName], [field]: value }
@@ -77,7 +89,7 @@ export default function SyncConfigPage() {
     setSyncConfigs(next);
   };
 
-  const filteredTables = selectedTablesList.filter((t: any) => 
+  const filteredTables = selectedTablesList.filter((t) => 
     (typeof t === "string" ? t : t.name).toLowerCase().includes(search.toLowerCase())
   );
 
@@ -135,8 +147,9 @@ export default function SyncConfigPage() {
 
           <ScrollArea className="flex-1 -mx-4 px-4">
             <div className="grid grid-cols-1 gap-4 pb-8">
-              {filteredTables.map((table: any) => {
+              {filteredTables.map((table) => {
                 const tableName = typeof table === "string" ? table : table.name;
+                const tableObj = typeof table === "string" ? {} as WizardTable : table;
                 const config = (syncConfigs[tableName] || { 
                   tableName, 
                   mode: "full_refresh",
@@ -160,14 +173,14 @@ export default function SyncConfigPage() {
                           <div>
                             <div className="flex items-center gap-2">
                                <p className="text-lg font-black text-foreground tracking-tight">{tableName}</p>
-                               {table.recommendation?.mode && (
+                               {tableObj.recommendation?.mode && (
                                  <Badge variant="outline" className="bg-success/5 text-success border-success/20 text-[8px] font-black uppercase tracking-widest px-1.5 py-0 h-4">
                                    Recommended
                                  </Badge>
                                )}
                             </div>
                             <div className="flex items-center gap-2 mt-1">
-                               <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest opacity-60">Schema: {table.schema || 'public'}</Badge>
+                               <Badge variant="outline" className="text-[9px] font-black uppercase tracking-widest opacity-60">Schema: {tableObj.schema || 'public'}</Badge>
                                <div className="w-1 h-1 rounded-full bg-border" />
                                <button 
                                  onClick={() => setExpanded(!expanded)}

@@ -151,27 +151,32 @@ export function useCapabilities() {
   });
 }
 
+export interface ConnectorTypeSchema {
+  schema: Record<string, unknown>;
+  capabilities: ConnectionCapabilities;
+}
+
 export function useResourceDiscovery() {
-  return useMutation<{ results: (string | any)[] }, Error, ResourceDiscoveryParams>({
+  return useMutation<{ results: (string | Record<string, unknown>)[] }, Error, ResourceDiscoveryParams>({
     mutationFn: async (params) => {
-      return apiClient.post<{ results: (string | any)[] }>("/connections/discover", params);
+      return apiClient.post<{ results: (string | Record<string, unknown>)[] }>("/connections/discover", params);
     },
   });
 }
 
 export function usePreviewData() {
-  return useMutation<{ data: any[]; columns: string[] }, Error, { type: string; table_name: string; schema_name?: string; [key: string]: any }>({
+  return useMutation<{ data: Record<string, unknown>[]; columns: string[] }, Error, { type: string; table_name: string; schema_name?: string; [key: string]: unknown }>({
     mutationFn: async (params) => {
-      return apiClient.post<{ data: any[]; columns: string[] }>("/connections/preview-data", params);
+      return apiClient.post<{ data: Record<string, unknown>[]; columns: string[] }>("/connections/preview-data", params as Record<string, unknown>);
     },
   });
 }
 
 export function useConnectorTypes() {
-  return useQuery<Record<string, { schema: any; capabilities: any }>>({
+  return useQuery<Record<string, ConnectorTypeSchema>>({
     queryKey: ["connector_types"],
     queryFn: async () => {
-      return apiClient.get<Record<string, { schema: any; capabilities: any }>>("/connections/types");
+      return apiClient.get<Record<string, ConnectorTypeSchema>>("/connections/types");
     },
   });
 }

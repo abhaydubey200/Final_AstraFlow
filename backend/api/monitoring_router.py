@@ -18,7 +18,31 @@ from api.dependencies import (
     get_governance_service
 )
 
+from services.self_healing_service import self_healing_manager
+
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
+
+@router.get("/system-health")
+async def get_system_health(request: Request):
+    """Aggregate high-level system health telemetry."""
+    pool = request.app.state.db_pool
+    healing_status = self_healing_manager.get_status()
+    
+    db_stats = {"status": "unreachable"}
+    try:
+        if pool:
+            async with pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+                db_stats = {"status": "healthy"}
+    except:
+        pass
+
+    return {
+        "status": "healthy" if db_stats["status"] == "healthy" else "degraded",
+        "database": db_stats,
+        "self_healing": healing_status,
+        "timestamp": datetime.now().isoformat()
+    }
 
 @router.get("/notifications")
 async def get_notifications(user_id: Optional[str] = None):
