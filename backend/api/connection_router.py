@@ -19,7 +19,12 @@ async def list_connections(
 ):
     """List connections with pagination. Default page size: 50."""
     limit = min(limit, 100)
-    return await service.list_connections(limit=limit, offset=offset)
+    try:
+        return await service.list_connections(limit=limit, offset=offset)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error listing connections: {e}")
+        return []
 
 @router.get("/{connection_id}")
 async def get_connection(

@@ -1,74 +1,61 @@
-import asyncpg
 import os
 import logging
+import asyncio
 from typing import Optional
+from core.supabase_client import supabase_manager
 
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     _instance: Optional['DatabaseManager'] = None
-    _pool: Optional[asyncpg.Pool] = None
 
     def __init__(self, dsn: str = None):
+        # We keep DSN for legacy compatibility, but internal ops use SDK
         self.dsn = dsn or os.getenv("DATABASE_URL")
 
-    async def connect(self, min_size: int = 10, max_size: int = 50):
-        """Initializes the connection pool."""
+    async def connect(self, min_size: int = 2, max_size: int = 10):
+        """
+        Initializes the Database layer.
+        With the new architecture, we verify Supabase API connectivity instead of direct TCP.
+        """
+        logger.info("Initializing AstraFlow Production Database Layer...")
+        
+        # 1. Check if we're using Mock DB
         raw_mock = os.getenv("USE_MOCK_DB")
         use_mock = str(raw_mock or "").strip().lower().strip('"\'').strip()
-        print(f"DEBUG_INFRA: USE_MOCK_DB raw='{raw_mock}', normalized='{use_mock}'")
+        
         if use_mock == "true":
-            if not self._pool:
-                import mock_db
-                self._pool = await mock_db.mock_pg.create_pool()
-                logger.info("Database connection pool initialized with MockDB")
+            logger.info("Database initialized in MOCK MODE")
             return
 
-        if not self.dsn:
-            self.dsn = os.getenv("DATABASE_URL")
-        
-        if not self.dsn:
-            raise ValueError("DATABASE_URL environment variable is required")
-        
-        if not self._pool:
-            try:
-                self._pool = await asyncpg.create_pool(
-                    dsn=self.dsn,
-                    min_size=min_size,
-                    max_size=max_size,
-                    command_timeout=60,
-                    max_queries=50000,
-                    max_inactive_connection_lifetime=300
-                )
-                logger.info(f"Database connection pool initialized (min={min_size}, max={max_size})")
-            except Exception as e:
-                logger.error(f"Failed to create database pool: {e}")
-                raise
+        # 2. Verify Supabase SDK Health
+        try:
+            is_healthy = await supabase_manager.check_health()
+            if is_healthy:
+                logger.info("PRODUCTION INFRA: Supabase HTTPS Bridge activated successfully.")
+            else:
+                logger.error("PRODUCTION INFRA: Supabase API unreachable via HTTPS.")
+                raise RuntimeError("Failed to establish Supabase HTTPS bridge.")
+        except Exception as e:
+            logger.critical(f"PRODUCTION INFRA: Shutdown due to connectivity failure: {e}")
+            raise
 
     async def disconnect(self):
-        """Closes the connection pool."""
-        if self._pool:
-            await self._pool.close()
-            self._pool = None
-            logger.info("Database connection pool closed")
+        """Graceful shutdown (placeholder for SDK)."""
+        logger.info("Supabase HTTPS Bridge disconnected.")
 
     async def health_check(self) -> bool:
-        """Verifies database connectivity."""
-        if not self._pool:
-            return False
-        try:
-            async with self._pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-                return True
-        except Exception as e:
-            logger.error(f"Database health check failed: {e}")
-            return False
+        """Verifies database connectivity via SDK."""
+        return await supabase_manager.check_health()
 
     @property
-    def pool(self) -> asyncpg.Pool:
-        if not self._pool:
-            raise RuntimeError("Database pool not initialized. Call connect() first.")
-        return self._pool
+    def pool(self) -> None:
+        """
+        Deprecated in favor of SDK. 
+        Will return None to signal that direct pool usage is forbidden for internal ops.
+        """
+        logger.warning("POOL ACCESS ATTEMPTED: Direct DB pool is deprecated for internal metadata.")
+        return None
 
 # Global instance for app lifecycle
 db_manager = DatabaseManager()

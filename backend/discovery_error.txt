@@ -221,3 +221,75 @@ Has Password: True
 Password Length: 16
 Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
 Discovery Context - DB: DS_GROUP_HR_DB
+
+--- Discovery Attempt --- 2026-03-27 17:29:43.290819
+Connection ID: None
+Connector Type: snowflake
+Target: databases
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 17:29:49.347371
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 17:46:22.070750
+Connection ID: None
+Connector Type: snowflake
+Target: databases
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 17:46:32.659294
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 20:20:23.265448
+Connection ID: None
+Connector Type: snowflake
+Target: databases
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 20:20:27.284630
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 21:24:13.802473
+Connection ID: None
+Connector Type: snowflake
+Target: databases
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-03-27 21:24:16.992002
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB

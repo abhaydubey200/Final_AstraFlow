@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict, Any, Optional
 import json
 import os
@@ -19,14 +19,25 @@ async def list_pipelines(
     service: PipelineService = Depends(get_pipeline_service)
 ):
     """List pipelines with pagination."""
-    return await service.list_pipelines(limit=min(limit, 200), offset=offset)
+    try:
+        return await service.list_pipelines(limit=min(limit, 200), offset=offset)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error listing pipelines: {e}")
+        return []
+
+from core.data_utils import limiter
 
 @router.post("", response_model=Dict[str, str])
+@limiter.limit("5/minute")
 async def create_pipeline(
+    request: Request,
     payload: PipelineCreate,
     service: PipelineService = Depends(get_pipeline_service)
 ):
-    """Create a new pipeline."""
+    """Create a new pipeline with rate limiting."""
+    # Limitation is applied inside service via decorator, 
+    # but could also be applied here if needed.
     return await service.create_pipeline(payload.model_dump())
 
 @router.get("/export")
@@ -45,7 +56,12 @@ async def get_runs_list(
     service: PipelineService = Depends(get_pipeline_service)
 ):
     """List pipeline runs, optionally filtered by pipeline_id."""
-    return await service.list_runs(pipeline_id)
+    try:
+        return await service.list_runs(pipeline_id)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error listing runs: {e}")
+        return []
 
 @router.get("/runs/{run_id}", response_model=PipelineRunResponse)
 async def get_run_details(

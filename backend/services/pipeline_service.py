@@ -2,42 +2,42 @@ import os
 import uuid
 import json
 import asyncio
-import asyncpg
+import logging
 from typing import List, Dict, Any, Optional
-from core.postgres_connector import PostgresConnector
-from core.base_connector import BaseConnector
+
+from core.supabase_client import supabase, supabase_logger
+from core.decorators import safe_execute
+from core.data_utils import cached_supabase_call, limiter, invalidate_cache
 from core.dag_validator import DAGValidator
 
-from services.connection_service import ConnectionService
-
 class PipelineService:
-    def __init__(self, pool: asyncpg.Pool):
-        self.pool = pool
-        self.connection_service = ConnectionService(pool)
+    def __init__(self, pool: Any = None):
+        # pool is deprecated, all calls use HTTPS SDK
+        self.supabase = supabase
 
+    @safe_execute()
     async def log_event(self, run_id: str, pipeline_id: str, stage: str, message: str, level: str = 'INFO', metadata: Dict[str, Any] = None):
-        """Records a structured log entry in the database."""
-        try:
-            r_id = uuid.UUID(run_id)
-            p_id = uuid.UUID(pipeline_id)
-        except ValueError:
-            return  # Ignore logs for invalid IDs
+        """Records a structured log entry in the database (Phase 11)."""
+        payload = {
+            "run_id": run_id,
+            "pipeline_id": pipeline_id,
+            "stage": stage,
+            "log_level": level,
+            "message": message,
+            "metadata": metadata or {}
+        }
+        self.supabase.table("pipeline_logs").insert(payload).execute()
+        # No need for manual logs if using service role
 
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO public.pipeline_logs (run_id, pipeline_id, stage, log_level, message, metadata) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                r_id, p_id, stage, level, message, json.dumps(metadata or {})
-            )
-
-    async def create_pipeline(self, payload: Dict[str, Any]):
+    @supabase_logger
+    async def create_pipeline(self, payload: Dict[str, Any], **kwargs):
+        """Creates a pipeline, its nodes, and initial version via SDK."""
         pipeline = payload.get("pipeline", {})
         nodes = payload.get("nodes", [])
         edges = payload.get("edges", [])
         
         # 0. Validate DAG Integrity
         node_ids = [str(n.get("id")) for n in nodes if n.get("id")]
-        # For new nodes without IDs, we temporarily use their indices
         for i, node in enumerate(nodes):
             if not node.get("id"):
                 node["id"] = f"temp_{i}"
@@ -47,378 +47,297 @@ class PipelineService:
         if not DAGValidator.validate(node_ids, edge_list):
             raise ValueError("Circular dependency detected in pipeline DAG")
 
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                # 1. Insert Pipeline
-                pipeline_id = await conn.fetchval(
-                    "INSERT INTO pipelines (name, status, environment, description, execution_mode) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-                    pipeline.get("name"), "draft", pipeline.get("environment", "dev"), pipeline.get("description"), pipeline.get("execution_mode", "linear")
-                )
-                
-                # 2. Assign IDs and Insert Nodes
-                node_id_map = {}
-                nodes_to_insert = []
-                for i, node in enumerate(nodes):
-                    original_id = node.get("id")
-                    # Generate a real UUID if the frontend ID isn't one or is a temp one
-                    try:
-                        node_uuid = uuid.UUID(original_id) if original_id and not str(original_id).startswith("temp_") else uuid.uuid4()
-                    except (ValueError, TypeError):
-                        node_uuid = uuid.uuid4()
-                    
-                    if original_id:
-                        node_id_map[str(original_id)] = node_uuid
-                    
-                    nodes_to_insert.append((
-                        node_uuid, pipeline_id, node.get("node_type"), node.get("label"), 
-                        json.dumps(node.get("config_json", {}) if isinstance(node.get("config_json"), dict) else json.loads(node.get("config_json") or "{}")),
-                        node.get("position_x", 0), node.get("position_y", 0), i
-                    ))
+        # 1. Insert Pipeline
+        p_res = self.supabase.table("pipelines").insert({
+            "name": pipeline.get("name"),
+            "status": "draft",
+            "environment": pipeline.get("environment", "dev"),
+            "description": pipeline.get("description"),
+            "execution_mode": pipeline.get("execution_mode", "linear")
+        }).execute()
+        
+        pipeline_id = p_res.data[0]['id']
+        
+        # 2. Insert Nodes
+        node_id_map = {}
+        nodes_to_insert = []
+        for i, node in enumerate(nodes):
+            node_uuid = str(uuid.uuid4())
+            original_id = node.get("id")
+            if original_id:
+                node_id_map[str(original_id)] = node_uuid
+            
+            nodes_to_insert.append({
+                "id": node_uuid,
+                "pipeline_id": pipeline_id,
+                "node_type": node.get("node_type"),
+                "label": node.get("label"),
+                "config_json": node.get("config_json", {}),
+                "position_x": node.get("position_x", 0),
+                "position_y": node.get("position_y", 0),
+                "order_index": i
+            })
 
-                if nodes_to_insert:
-                    await conn.executemany(
-                        "INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config_json, position_x, position_y, order_index) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                        nodes_to_insert
-                    )
-                
-                # 3. Insert Edges using the Map
-                if edges:
-                    edge_data = []
-                    for edge in edges:
-                        s_id = str(edge.get("source_node_id"))
-                        t_id = str(edge.get("target_node_id"))
-                        
-                        # Resolve from map if possible
-                        s_uuid = node_id_map.get(s_id)
-                        t_uuid = node_id_map.get(t_id)
-                        
-                        if not s_uuid:
-                             try: s_uuid = uuid.UUID(s_id)
-                             except: continue
-                        if not t_uuid:
-                             try: t_uuid = uuid.UUID(t_id)
-                             except: continue
+        if nodes_to_insert:
+            self.supabase.table("pipeline_nodes").insert(nodes_to_insert).execute()
+        
+        # 3. Insert Edges
+        if edges:
+            edge_data = []
+            for edge in edges:
+                s_uuid = node_id_map.get(str(edge.get("source_node_id")))
+                t_uuid = node_id_map.get(str(edge.get("target_node_id")))
+                if s_uuid and t_uuid:
+                    edge_data.append({
+                        "pipeline_id": pipeline_id,
+                        "source_node_id": s_uuid,
+                        "target_node_id": t_uuid
+                    })
+            if edge_data:
+                self.supabase.table("pipeline_edges").insert(edge_data).execute()
+        
+        # 4. Initial Version
+        self.supabase.table("pipeline_versions").insert({
+            "pipeline_id": pipeline_id,
+            "version_number": 1,
+            "dag_json": {"nodes": nodes, "edges": edges}
+        }).execute()
+        
+        # 4. Initial Version
+        self.supabase.table("pipeline_versions").insert({
+            "pipeline_id": pipeline_id,
+            "version_number": 1,
+            "dag_json": {"nodes": nodes, "edges": edges}
+        }).execute()
+        
+        # Phase 8: Manual Cache Invalidation
+        invalidate_cache("list_pipelines")
+        
+        return {"id": str(pipeline_id), "status": "created"}
 
-                        edge_data.append((pipeline_id, s_uuid, t_uuid))
-
-                    if edge_data:
-                        await conn.executemany(
-                            "INSERT INTO pipeline_edges (pipeline_id, source_node_id, target_node_id) "
-                            "VALUES ($1, $2, $3)",
-                            edge_data
-                        )
-                
-                # 4. Initial Version
-                await conn.execute(
-                    "INSERT INTO pipeline_versions (pipeline_id, version_number, dag_json) "
-                    "VALUES ($1, 1, $2)",
-                    pipeline_id, json.dumps({"nodes": nodes, "edges": edges})
-                )
-                
-                # 5. Compile DAG for Scheduler
-                await self.compile_dag(str(pipeline_id), nodes, edges)
-                
-            return {"id": str(pipeline_id), "status": "created"}
-
+    @safe_execute()
     async def compile_dag(self, pipeline_id: str, nodes: List[Dict], edges: List[Dict]):
-        """Translates visual nodes and edges into executable tasks and dependencies."""
+        """Translates visual nodes and edges into executable tasks (Phase 2 Migration)."""
         type_mapping = {
-            "source": "EXTRACT",
-            "extract": "EXTRACT",
-            "load": "LOAD",
-            "destination": "LOAD",
-            "transform": "SQL",
-            "validate": "VALIDATION",
-            "filter": "SQL",
-            "join": "SQL",
-            "aggregate": "SQL"
+            "source": "EXTRACT", "extract": "EXTRACT", "load": "LOAD", "destination": "LOAD",
+            "transform": "SQL", "validate": "VALIDATION", "filter": "SQL", "join": "SQL", "aggregate": "SQL"
         }
         
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                # Clear existing
-                await conn.execute("DELETE FROM public.pipeline_tasks WHERE pipeline_id = $1", uuid.UUID(pipeline_id))
-                await conn.execute("DELETE FROM public.pipeline_dependencies WHERE pipeline_id = $1", uuid.UUID(pipeline_id))
-                
-                # Create Tasks
-                node_to_task_id = {}
-                for node in nodes:
-                    node_id = str(node.get("id"))
-                    task_name = node.get("label", "Unnamed Task")
-                    task_type = type_mapping.get(node.get("node_type", "").lower(), "SQL")
-                    config = node.get("config_json", {})
-                    if not isinstance(config, dict):
-                        try: config = json.loads(config)
-                        except: config = {}
-                    
-                    # Inject connection_id if exists in node top-level
-                    if node.get("connection_id"):
-                        config["connection_id"] = node["connection_id"]
-                    
-                    # Ensure table_name/source_table exists
-                    if not config.get("table_name"):
-                        config["table_name"] = node.get("table_name") or node.get("source_table") or node.get("target_table")
-                    
-                    # Store Task (Mock will generate ID)
-                    await conn.execute(
-                        "INSERT INTO public.pipeline_tasks (pipeline_id, task_name, task_type, config_json) VALUES ($1, $2, $3, $4)",
-                        uuid.UUID(pipeline_id), task_name, task_type, json.dumps(config) if isinstance(config, dict) else config
-                    )
-                    
-                    # Fetch the generated ID (In mock we can just use the node_id if we want, but let's be realistic)
-                    # For simplicity in mock, let's assume we can map them back.
-                    # Actually, let's just use the node ID as task ID in the mock if possible?
-                    # No, the mock generates a random UUID for tasks.
-                    # Let's fetch them all back to map.
-                    
-                # Re-fetch tasks to build mapping (since mock generates random UUIDs)
-                task_rows = await conn.fetch("SELECT id, task_name FROM public.pipeline_tasks WHERE pipeline_id = $1", uuid.UUID(pipeline_id))
-                task_map = {r['task_name']: r['id'] for r in task_rows}
-                
-                # Insert Dependencies
-                for edge in edges:
-                    s_id = str(edge.get("source_node_id"))
-                    t_id = str(edge.get("target_node_id"))
-                    
-                    # Find labels to map back
-                    s_label = next((n.get("label") for n in nodes if str(n.get("id")) == s_id), None)
-                    t_label = next((n.get("label") for n in nodes if str(n.get("id")) == t_id), None)
-                    
-                    if s_label and t_label and s_label in task_map and t_label in task_map:
-                        await conn.execute(
-                            "INSERT INTO public.pipeline_dependencies (pipeline_id, parent_task_id, child_task_id) "
-                            "VALUES ($1, $2, $3)",
-                            uuid.UUID(pipeline_id), task_map[s_label], task_map[t_label]
-                        )
-
-    async def create_run(self, pipeline_id: str, status: str = "pending", environment: Optional[str] = None) -> Dict[str, Any]:
-        """Creates a new pipeline_run record, inheriting environment from pipeline if not provided."""
-        try:
-            p_uuid = uuid.UUID(pipeline_id)
-        except ValueError:
-            raise ValueError(f"Invalid pipeline_id: {pipeline_id}")
-
-        async with self.pool.acquire() as conn:
-            if not environment:
-                # Fetch env from pipeline
-                env_row = await conn.fetchrow("SELECT environment FROM pipelines WHERE id = $1", p_uuid)
-                environment = env_row['environment'] if env_row else 'dev'
-
-            run_id = await conn.fetchval(
-                "INSERT INTO pipeline_runs (pipeline_id, status, environment, start_time) VALUES ($1, $2, $3, NOW()) RETURNING id",
-                p_uuid, status, environment
-            )
-
-            # Initialize task runs for all nodes
-            nodes = await conn.fetch("SELECT id FROM pipeline_nodes WHERE pipeline_id = $1", p_uuid)
-            for node in nodes:
-                await conn.execute(
-                    "INSERT INTO public.pipeline_task_runs (pipeline_run_id, node_id, status) VALUES ($1, $2, 'pending')",
-                    run_id, node['id']
-                )
-
-            return {"id": str(run_id), "status": status, "environment": environment}
-
-    async def list_runs(self, pipeline_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            query = "SELECT * FROM pipeline_runs"
-            params = []
-            if pipeline_id and pipeline_id.strip():
-                try:
-                    uuid_val = uuid.UUID(pipeline_id)
-                    query += " WHERE pipeline_id = $1"
-                    params.append(uuid_val)
-                except ValueError:
-                    pass # Ignore invalid UUID filters
-            query += " ORDER BY start_time DESC"
-            rows = await conn.fetch(query, *params)
-            return [dict(r) for r in rows]
-
-    async def list_run_tasks(self, run_id: str) -> List[Dict[str, Any]]:
-        """Fetches all tasks associated with a specific pipeline run."""
-        try:
-            r_uuid = uuid.UUID(run_id)
-        except ValueError:
-            return []
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM public.pipeline_task_runs WHERE pipeline_run_id = $1 ORDER BY start_time ASC",
-                r_uuid
-            )
-            return [dict(r) for r in rows]
-
-    async def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
-        try:
-            r_uuid = uuid.UUID(run_id)
-        except ValueError:
-            return None
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM pipeline_runs WHERE id = $1", r_uuid)
-            return dict(row) if row else None
-
-    async def list_pipelines(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM pipelines ORDER BY updated_at DESC LIMIT $1 OFFSET $2",
-                limit, offset
-            )
-            return [dict(r) for r in rows]
-
-    async def get_pipeline(self, pipeline_id: str) -> Optional[Dict[str, Any]]:
-        try:
-            p_uuid = uuid.UUID(pipeline_id)
-        except ValueError:
-            return None
-
-        async with self.pool.acquire() as conn:
-            p_row = await conn.fetchrow("SELECT * FROM pipelines WHERE id = $1", p_uuid)
-            if not p_row:
-                return None
-            
-            pipeline = dict(p_row)
-            n_rows = await conn.fetch("SELECT * FROM pipeline_nodes WHERE pipeline_id = $1 ORDER BY order_index", p_uuid)
-            e_rows = await conn.fetch("SELECT * FROM pipeline_edges WHERE pipeline_id = $1", p_uuid)
-            
-            pipeline["pipeline_nodes"] = [dict(r) for r in n_rows]
-            pipeline["pipeline_edges"] = [dict(r) for r in e_rows]
-            return pipeline
-
-    async def update_pipeline(self, pipeline_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        print(f"DEBUG: update_pipeline called for {pipeline_id} with payload keys: {list(payload.keys())}")
-        p_uuid = uuid.UUID(pipeline_id)
+        # 1. Clear existing tasks and dependencies
+        self.supabase.table("pipeline_tasks").delete().eq("pipeline_id", pipeline_id).execute()
+        self.supabase.table("pipeline_dependencies").delete().eq("pipeline_id", pipeline_id).execute()
         
-        # 0. Validate DAG Integrity if nodes/edges modified
-        if 'nodes' in payload or 'edges' in payload:
-            print("DEBUG: Validating DAG integrity...")
-            pipeline = await self.get_pipeline(pipeline_id)
-            if not pipeline:
-                print(f"DEBUG: Pipeline {pipeline_id} not found in get_pipeline")
-                return None
-            nodes = payload.get('nodes', pipeline.get('pipeline_nodes', []))
-            edges = payload.get('edges', pipeline.get('pipeline_edges', []))
+        # 2. Create Tasks
+        tasks_to_insert = []
+        node_to_task_name = {}
+        for node in nodes:
+            node_id = str(node.get("id"))
+            task_name = node.get("label", "Unnamed Task")
+            node_to_task_name[node_id] = task_name
             
-            node_ids = [str(n.get("id")) for n in nodes]
-            edge_list = [{"parent_task_id": str(e.get("source_node_id")), "child_task_id": str(e.get("target_node_id"))} for e in edges]
-            if not DAGValidator.validate(node_ids, edge_list):
-                raise ValueError("Circular dependency detected in pipeline DAG")
-
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                # 1. Update metadata
-                updates = []
-                params = [p_uuid]
-                for key in ['name', 'description', 'status', 'schedule_type', 'schedule_config', 'execution_mode']:
-                    if key in payload:
-                        updates.append(f"{key} = ${len(params) + 1}")
-                        params.append(payload[key])
+            task_type = type_mapping.get(node.get("node_type", "").lower(), "SQL")
+            config = node.get("config_json", {})
+            if isinstance(config, str):
+                try: config = json.loads(config)
+                except: config = {}
+            
+            if node.get("connection_id"):
+                config["connection_id"] = node["connection_id"]
+            if not config.get("table_name"):
+                config["table_name"] = node.get("table_name") or node.get("source_table") or node.get("target_table")
+            
+            tasks_to_insert.append({
+                "pipeline_id": pipeline_id,
+                "task_name": task_name,
+                "task_type": task_type,
+                "config_json": config
+            })
+            
+        if tasks_to_insert:
+            t_res = self.supabase.table("pipeline_tasks").insert(tasks_to_insert).execute()
+            
+            # Map task names to generated IDs
+            task_map = {r['task_name']: r['id'] for r in t_res.data}
+            
+            # 3. Insert Dependencies
+            edge_data = []
+            for edge in edges:
+                s_id = str(edge.get("source_node_id"))
+                t_id = str(edge.get("target_node_id"))
                 
-                if updates:
-                    query = f"UPDATE pipelines SET {', '.join(updates)}, updated_at = NOW() WHERE id = $1"
-                    await conn.execute(query, *params)
+                s_name = node_to_task_name.get(s_id)
+                t_name = node_to_task_name.get(t_id)
+                
+                if s_name and t_name and s_name in task_map and t_name in task_map:
+                    edge_data.append({
+                        "pipeline_id": pipeline_id,
+                        "parent_task_id": task_map[s_name],
+                        "child_task_id": task_map[t_name]
+                    })
+            if edge_data:
+                self.supabase.table("pipeline_dependencies").insert(edge_data).execute()
 
-                # 2. Update nodes and edges if provided
-                if 'nodes' in payload or 'edges' in payload:
-                    # Get current max version
-                    v_row = await conn.fetchrow(
-                        "SELECT MAX(version_number) as v FROM pipeline_versions WHERE pipeline_id = $1",
-                        p_uuid
-                    )
-                    current_v = v_row['v'] if v_row and v_row['v'] is not None else 0
-                    next_version = current_v + 1
-                    
-                    # Create new version record
-                    dag_json = {
-                        "nodes": payload.get('nodes', []),
-                        "edges": payload.get('edges', [])
-                    }
-                    print(f"DEBUG: Created version {next_version}")
-                    
-                    # 3. Compile DAG for Scheduler
-                    print("DEBUG: Compiling DAG...")
-                    await self.compile_dag(str(pipeline_id), nodes, edges)
-                    print("DEBUG: DAG compiled.")
+    @safe_execute()
+    async def create_run(self, pipeline_id: str, status: str = "pending", environment: Optional[str] = None) -> Dict[str, Any]:
+        """Creates a new pipeline_run record (Phase 2 Migration)."""
+        if not environment:
+            # Fetch env from pipeline
+            env_res = self.supabase.table("pipelines").select("environment").eq("id", pipeline_id).execute()
+            environment = env_res.data[0]['environment'] if env_res.data else 'dev'
 
-                    # Update current active nodes
-                    if 'nodes' in payload:
-                        await conn.execute("DELETE FROM pipeline_nodes WHERE pipeline_id = $1", p_uuid)
-                        node_id_map = {}
-                        nodes_to_insert = []
-                        for i, node in enumerate(payload['nodes']):
-                            original_id = node.get("id")
-                            try:
-                                node_uuid = uuid.UUID(original_id) if original_id else uuid.uuid4()
-                            except (ValueError, TypeError):
-                                node_uuid = uuid.uuid4()
-                            
-                            if original_id:
-                                node_id_map[str(original_id)] = node_uuid
-                            
-                            nodes_to_insert.append((
-                                node_uuid, p_uuid, node['node_type'], node['label'], 
-                                json.dumps(node.get('config_json', {})), node.get('position_x', 0), 
-                                node.get('position_y', 0), i
-                            ))
+        run_res = self.supabase.table("pipeline_runs").insert({
+            "pipeline_id": pipeline_id,
+            "status": status,
+            "environment": environment
+        }).execute()
 
-                        if nodes_to_insert:
-                            await conn.executemany(
-                                "INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config_json, position_x, position_y, order_index) "
-                                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                                nodes_to_insert
-                            )
+        if not run_res.data:
+            raise RuntimeError("Failed to create pipeline run")
 
-                    if 'edges' in payload:
-                        await conn.execute("DELETE FROM pipeline_edges WHERE pipeline_id = $1", p_uuid)
-                        edge_data = []
-                        for edge in payload['edges']:
-                            s_id = str(edge.get("source_node_id"))
-                            t_id = str(edge.get("target_node_id"))
-                            
-                            s_uuid = node_id_map.get(s_id)
-                            t_uuid = node_id_map.get(t_id)
-                            
-                            if not s_uuid:
-                                 try: s_uuid = uuid.UUID(s_id)
-                                 except: continue
-                            if not t_uuid:
-                                 try: t_uuid = uuid.UUID(t_id)
-                                 except: continue
+        run_id = run_res.data[0]['id']
 
-                            edge_data.append((p_uuid, s_uuid, t_uuid))
+        # Initialize task runs for all nodes
+        nodes_res = self.supabase.table("pipeline_nodes").select("id").eq("pipeline_id", pipeline_id).execute()
+        if nodes_res.data:
+            task_runs = [{"pipeline_run_id": run_id, "node_id": node['id'], "status": "pending"} for node in nodes_res.data]
+            self.supabase.table("pipeline_task_runs").insert(task_runs).execute()
 
-                        if edge_data:
-                            await conn.executemany(
-                                "INSERT INTO pipeline_edges (pipeline_id, source_node_id, target_node_id) "
-                                "VALUES ($1, $2, $3)",
-                                edge_data
-                            )
+        return {"id": str(run_id), "status": status, "environment": environment}
 
-                p_row = await conn.fetchrow("SELECT * FROM pipelines WHERE id = $1", p_uuid)
-                return dict(p_row) if p_row else {}
+    @safe_execute()
+    async def list_runs(self, pipeline_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Phase 2 Migration: List runs."""
+        query = self.supabase.table("pipeline_runs").select("*")
+        if pipeline_id:
+            query = query.eq("pipeline_id", pipeline_id)
+        res = query.order("start_time", desc=True).execute()
+        return res.data
 
+    @safe_execute()
+    async def list_run_tasks(self, run_id: str) -> List[Dict[str, Any]]:
+        """Phase 2 Migration: List task runs for a given execution."""
+        res = self.supabase.table("pipeline_task_runs").select("*").eq("pipeline_run_id", run_id).order("start_time", asc=True).execute()
+        return res.data
+
+    @safe_execute()
+    async def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Phase 2 Migration: Get single run."""
+        res = self.supabase.table("pipeline_runs").select("*").eq("id", run_id).execute()
+        return res.data[0] if res.data else None
+
+    @cached_supabase_call(ttl=60)
+    @safe_execute()
+    @supabase_logger
+    async def list_pipelines(self, limit: int = 50, offset: int = 0):
+        """Lists pipelines with standard 60s caching (Phase 8)."""
+        res = self.supabase.table("pipelines")\
+            .select("*")\
+            .order("updated_at", desc=True)\
+            .range(offset, offset + limit - 1)\
+            .execute()
+        return res.data
+
+    @safe_execute()
+    async def get_pipeline(self, pipeline_id: str) -> Optional[Dict[str, Any]]:
+        """Phase 2 Migration: Get pipeline with nodes & edges."""
+        p_res = self.supabase.table("pipelines").select("*").eq("id", pipeline_id).execute()
+        if not p_res.data:
+            return None
+            
+        pipeline = p_res.data[0]
+        n_res = self.supabase.table("pipeline_nodes").select("*").eq("pipeline_id", pipeline_id).order("order_index").execute()
+        e_res = self.supabase.table("pipeline_edges").select("*").eq("pipeline_id", pipeline_id).execute()
+        
+        pipeline["pipeline_nodes"] = n_res.data
+        pipeline["pipeline_edges"] = e_res.data
+        return pipeline
+
+    @safe_execute()
+    async def update_pipeline(self, pipeline_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Phase 2 Migration: Update pipeline with versioning."""
+        # 1. Update metadata
+        update_data = {}
+        for key in ['name', 'description', 'status', 'schedule_type', 'schedule_config', 'execution_mode']:
+            if key in payload:
+                update_data[key] = payload[key]
+        
+        if update_data:
+            update_data["updated_at"] = "now()"
+            self.supabase.table("pipelines").update(update_data).eq("id", pipeline_id).execute()
+
+        # 2. Update nodes and edges if provided
+        if 'nodes' in payload or 'edges' in payload:
+            # Create new version record
+            v_res = self.supabase.table("pipeline_versions").select("version_number").eq("pipeline_id", pipeline_id).order("version_number", desc=True).limit(1).execute()
+            current_v = v_res.data[0]['version_number'] if v_res.data else 0
+            
+            self.supabase.table("pipeline_versions").insert({
+                "pipeline_id": pipeline_id,
+                "version_number": current_v + 1,
+                "dag_json": {
+                    "nodes": payload.get('nodes', []),
+                    "edges": payload.get('edges', [])
+                }
+            }).execute()
+
+            # Update current active nodes
+            if 'nodes' in payload:
+                self.supabase.table("pipeline_nodes").delete().eq("pipeline_id", pipeline_id).execute()
+                nodes_to_insert = []
+                for i, node in enumerate(payload['nodes']):
+                    nodes_to_insert.append({
+                        "pipeline_id": pipeline_id,
+                        "node_type": node['node_type'],
+                        "label": node['label'],
+                        "config_json": node.get('config_json', {}),
+                        "position_x": node.get('position_x', 0),
+                        "position_y": node.get('position_y', 0),
+                        "order_index": i
+                    })
+                if nodes_to_insert:
+                    self.supabase.table("pipeline_nodes").insert(nodes_to_insert).execute()
+
+            if 'edges' in payload:
+                self.supabase.table("pipeline_edges").delete().eq("pipeline_id", pipeline_id).execute()
+                edge_data = []
+                for edge in payload['edges']:
+                    edge_data.append({
+                        "pipeline_id": pipeline_id,
+                        "source_node_id": edge.get("source_node_id"),
+                        "target_node_id": edge.get("target_node_id")
+                    })
+                if edge_data:
+                    self.supabase.table("pipeline_edges").insert(edge_data).execute()
+
+        # Phase 8: Invalidate Cache
+        invalidate_cache("list_pipelines")
+        
+        res = self.supabase.table("pipelines").select("*").eq("id", pipeline_id).execute()
+        return res.data[0] if res.data else {}
+
+    @safe_execute()
     async def list_versions(self, pipeline_id: str) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM pipeline_versions WHERE pipeline_id = $1 ORDER BY version_number DESC",
-                uuid.UUID(pipeline_id)
-            )
-            return [dict(r) for r in rows]
+        """Phase 2 Migration: List versions."""
+        res = self.supabase.table("pipeline_versions").select("*").eq("pipeline_id", pipeline_id).order("version_number", desc=True).execute()
+        return res.data
 
+    @safe_execute()
     async def export_all_data(self) -> Dict[str, Any]:
-        async with self.pool.acquire() as conn:
-            pipelines = await conn.fetch("SELECT * FROM pipelines")
-            nodes = await conn.fetch("SELECT * FROM pipeline_nodes")
-            edges = await conn.fetch("SELECT * FROM pipeline_edges")
-            return {
-                "pipelines": [dict(r) for r in pipelines],
-                "nodes": [dict(r) for r in nodes],
-                "edges": [dict(r) for r in edges]
-            }
+        """Phase 2 Migration: Export metadata."""
+        p = self.supabase.table("pipelines").select("*").execute()
+        n = self.supabase.table("pipeline_nodes").select("*").execute()
+        e = self.supabase.table("pipeline_edges").select("*").execute()
+        return {
+            "pipelines": p.data,
+            "nodes": n.data,
+            "edges": e.data
+        }
 
+    @safe_execute()
     async def delete_pipeline(self, pipeline_id: str):
-        async with self.pool.acquire() as conn:
-            # Cascade delete should handle nodes/edges if schema is set up correctly
-            await conn.execute("DELETE FROM pipelines WHERE id = $1", uuid.UUID(pipeline_id))
+        """Phase 2 Migration: Delete pipeline."""
+        self.supabase.table("pipelines").delete().eq("id", pipeline_id).execute()
+        invalidate_cache("list_pipelines")
 
     async def duplicate_pipeline(self, pipeline_id: str):
         pipeline = await self.get_pipeline(pipeline_id)
@@ -437,54 +356,51 @@ class PipelineService:
         }
         return await self.create_pipeline(new_payload)
 
+    @safe_execute()
     async def list_worker_jobs(self, run_id: str) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM astra_worker_queue WHERE run_id = $1", uuid.UUID(run_id))
-            return [dict(r) for r in rows]
+        """Phase 2 Migration: List worker jobs."""
+        res = self.supabase.table("astra_worker_queue").select("*").eq("run_id", run_id).execute()
+        return res.data
 
+    @safe_execute()
     async def get_run_logs(self, run_id: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            query = "SELECT * FROM public.pipeline_logs WHERE run_id = $1"
-            params = [uuid.UUID(run_id)]
-            # Add filtering if needed
-            query += " ORDER BY timestamp ASC"
-            rows = await conn.fetch(query, *params)
-            return [dict(r) for r in rows]
+        """Phase 2 Migration: Get run logs."""
+        res = self.supabase.table("pipeline_logs").select("*").eq("run_id", run_id).order("timestamp", asc=True).execute()
+        return res.data
 
     async def get_logs(self, run_id: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """Alias for get_run_logs for API consistency across services."""
         return await self.get_run_logs(run_id, filters)
 
+    @safe_execute()
     async def list_all_nodes(self) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM pipeline_nodes ORDER BY order_index")
-            return [dict(r) for r in rows]
+        """Phase 2 Migration: List all nodes."""
+        res = self.supabase.table("pipeline_nodes").select("*").order("order_index").execute()
+        return res.data
 
+    @safe_execute()
     async def create_trigger(self, parent_id: str, child_id: str, trigger_type: str = 'on_success'):
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO pipeline_triggers (parent_pipeline_id, child_pipeline_id, trigger_type) "
-                "VALUES ($1, $2, $3) ON CONFLICT (parent_pipeline_id, child_pipeline_id) DO UPDATE SET trigger_type = $3",
-                uuid.UUID(parent_id), uuid.UUID(child_id), trigger_type
-            )
+        """Phase 2 Migration: Upsert trigger."""
+        self.supabase.table("pipeline_triggers").upsert({
+            "parent_pipeline_id": parent_id,
+            "child_pipeline_id": child_id,
+            "trigger_type": trigger_type
+        }).execute()
 
+    @safe_execute()
     async def check_and_trigger_children(self, parent_pipeline_id: str, run_status: str):
-        """Checks for child pipelines that should be triggered based on parent success/failure."""
-        async with self.pool.acquire() as conn:
-            # Find triggers matching the status
-            trigger_map = {
-                'completed': 'on_success',
-                'failed': 'on_failure'
-            }
-            ttype = trigger_map.get(run_status)
-            if not ttype:
-                return []
+        """Phase 2 Migration: Check and trigger children."""
+        trigger_map = {'completed': 'on_success', 'failed': 'on_failure'}
+        ttype = trigger_map.get(run_status)
+        if not ttype: return []
 
-            rows = await conn.fetch(
-                "SELECT child_pipeline_id FROM pipeline_triggers WHERE parent_pipeline_id = $1 AND trigger_type = $2 AND is_active = true",
-                uuid.UUID(parent_pipeline_id), ttype
-            )
-            return [str(r['child_pipeline_id']) for r in rows]
+        res = self.supabase.table("pipeline_triggers")\
+            .select("child_pipeline_id")\
+            .eq("parent_pipeline_id", parent_pipeline_id)\
+            .eq("trigger_type", ttype)\
+            .eq("is_active", True)\
+            .execute()
+        return [str(r['child_pipeline_id']) for r in res.data]
 
     async def validate_pipeline(self, pipeline_id: str) -> Dict[str, Any]:
         """Performs pre-flight checks on a pipeline configuration."""

@@ -11,12 +11,14 @@ from api.metadata_router import router as metadata_router
 from api.self_healing_router import router as self_healing_router
 from services.canary_service import canary_manager
 from core.error_handler import setup_exception_handlers
+from core.data_utils import limiter
 from services.auto_heal_service import setup_auto_heal
 from services.self_healing_service import self_healing_manager
-from dotenv import load_dotenv
+from core.supabase_client import supabase, supabase_manager, validate_env
+from core.decorators import safe_execute
 
-# Load environment variables
-load_dotenv()
+# Load environment variables and validate Phase 3
+validate_env()
 
 # Initialize Mock DB if enabled
 if os.getenv("USE_MOCK_DB") == "true":
@@ -26,6 +28,8 @@ if os.getenv("USE_MOCK_DB") == "true":
         print("WARNING: mock_db module not found. Falling back to real DB.")
 
 app = FastAPI(title="AstraFlow API", version="2.5.0")
+app.state.limiter = limiter
+app.state.db_pool = None
 
 # CORS Configuration
 app.add_middleware(
@@ -39,25 +43,61 @@ app.add_middleware(
 # Register Centralized Global Exception Handler
 setup_exception_handlers(app)
 
+# Phase 6: Deterministic Health System
+async def health_check_internal():
+    """Verify Supabase API connectivity (Phase 6.1)"""
+    try:
+        supabase.table("pipelines").select("id").limit(1).execute()
+        print("STARTUP: Supabase API Connectivity PASSED.")
+    except Exception as e:
+        print(f"STARTUP: Supabase API Connectivity FAILED: {e}")
+        raise
+
+async def write_check_internal():
+    """Verify Supabase RLS Write Bypass (Phase 6.2)"""
+    try:
+        test_record = {
+            "name": "system_startup_check",
+            "description": "HEALTH_CHECK_WRITE_PHASE_6",
+            "status": "draft"
+        }
+        res = supabase.table("pipelines").insert(test_record).execute()
+        if res.data and len(res.data) > 0:
+            test_id = res.data[0]['id']
+            supabase.table("pipelines").delete().eq("id", test_id).execute()
+        print("STARTUP: Supabase RLS Bypass (Service Role) PASSED.")
+    except Exception as e:
+        print(f"STARTUP: Supabase RLS Bypass (Service Role) FAILED: {e}")
+        raise
+
 @app.on_event("startup")
 async def startup_event():
+    print("INFRA: AstraFlow Starting Up...")
     try:
+        # Phase 6: Deterministic Health Verification
+        await health_check_internal()
+        await write_check_internal()
+        
+        # Initialize Database Manager
         await db_manager.connect()
-        setup_auto_heal(app, db_manager.pool)
+        print("INFRA: Database layer initialized via HTTPS SDK.")
+        
+        # Initialize Auto-Heal
+        setup_auto_heal(app, None)
         
         # Snowflake check for stability
         from core.snowflake_connector import SnowflakeConnector
         print(f"STARTUP: SnowflakeConnector verified. Abstract methods: {SnowflakeConnector.__abstractmethods__}")
         
-        app.state.db_pool = db_manager.pool
-        self_healing_manager.pool = db_manager.pool
+        # Ensure self-healing pool is reset for SDK mode
+        self_healing_manager.pool = None
         
         # Start DAG Engine (Scheduler + Workers)
         from services.scheduler_service import SchedulerService
         from services.worker_service import WorkerService
         
-        scheduler = SchedulerService(db_manager.pool)
-        worker = WorkerService(db_manager.pool)
+        scheduler = SchedulerService(None)
+        worker = WorkerService(None)
         
         asyncio.create_task(scheduler.run_loop())
         
@@ -89,12 +129,16 @@ async def startup_event():
         asyncio.create_task(job_worker_loop())
         print("INFRA: DAG Scheduler and Worker loops started.")
 
-        # Start autonomous validation loop
+        # Start autonomous validation loop (Canary)
         await canary_manager.start()
+        print("INFRA: Canary monitoring active.")
+
     except Exception as e:
         import traceback
-        print(f"CRITICAL STARTUP ERROR: {e}")
-        print(traceback.format_exc())
+        print("FATAL: Startup sequence failed!")
+        traceback.print_exc()
+        # In a real production environment, we might want to exit here
+        # raise e
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -103,8 +147,15 @@ async def shutdown_event():
 
 # Health Check
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy", "mode": "mock" if os.getenv("USE_MOCK_DB") == "true" else "production"}
+async def health():
+    """Phase 11: Production Observability Endpoint"""
+    db_ok = await supabase_manager.check_health()
+    return {
+        "status": "online" if db_ok else "degraded",
+        "version": "2.5.0-hardened",
+        "mode": "production",
+        "database": "connected" if db_ok else "failed"
+    }
 
 # Register Routers
 app.include_router(pipeline_router, tags=["pipelines"])

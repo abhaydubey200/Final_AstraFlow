@@ -15,3 +15,6 @@ pymssql
 mysql-connector-python
 psutil
 httpx
+supabase
+slowapi
+cachetools

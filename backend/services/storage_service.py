@@ -26,17 +26,22 @@ class StorageService:
             region_name='us-east-1'
         )
         
-        # Ensure bucket exists
-        self._ensure_bucket()
+        # Ensure bucket exists (only if not in a cloud environment or specifically requested)
+        if os.getenv("STORAGE_AUTO_CREATE_BUCKET", "true").lower() == "true":
+            self._ensure_bucket()
 
     def _ensure_bucket(self):
         try:
             self.s3.head_bucket(Bucket=self.bucket_name)
-        except:
-            try:
-                self.s3.create_bucket(Bucket=self.bucket_name)
-            except Exception as e:
-                print(f"Error creating storage bucket: {e}")
+        except Exception as e:
+            if "Forbidden" in str(e):
+                print(f"INFO: Storage bucket '{self.bucket_name}' exists but head_bucket was forbidden (likely permission-related).")
+            else:
+                try:
+                    self.s3.create_bucket(Bucket=self.bucket_name)
+                    print(f"INFO: Created storage bucket '{self.bucket_name}'.")
+                except Exception as ex:
+                    print(f"WARNING: Could not create/verify storage bucket '{self.bucket_name}': {ex}")
 
     async def upload_file(self, local_path: str, remote_path: str) -> str:
         """Uploads a local file to object storage."""

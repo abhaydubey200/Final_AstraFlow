@@ -1,7 +1,5 @@
-import os
 import uuid
 import json
-import asyncpg
 import time
 import asyncio
 from fastapi import HTTPException
@@ -13,49 +11,71 @@ from services.metadata_service import MetadataService
 from services.secret_service import SecretService
 from services.capability_service import CapabilityService
 from services.ai_service import AIService
+from core.supabase_client import supabase, supabase_logger
+from core.decorators import safe_execute
+from core.data_utils import cached_supabase_call, invalidate_cache
 
 class ConnectionService:
-    def __init__(self, pool: asyncpg.Pool):
-        self.pool = pool
-        self.metadata_service = MetadataService(pool)
-        self.secret_service = SecretService(pool)
-        self.capability_service = CapabilityService(pool)
+    def __init__(self, pool: Any = None):
+        # Using Supabase SDK for all operations (Phase 2 Migration)
+        self.supabase = supabase
+        self.metadata_service = MetadataService()
+        self.secret_service = SecretService()
+        self.capability_service = CapabilityService()
         self.ai_service = AIService()
         self._pool_cache = {} 
 
+    @cached_supabase_call(ttl=60)
+    @supabase_logger
     async def list_connections(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            # Join with performance and capabilities
-            rows = await conn.fetch("""
-                SELECT c.*, cp.avg_latency_ms, cap.supports_cdc, cap.supports_incremental
-                FROM connections c
-                LEFT JOIN connection_performance cp ON c.id = cp.connection_id
-                LEFT JOIN connection_capabilities cap ON c.id = cap.connection_id
-                ORDER BY c.created_at DESC
-                LIMIT $1 OFFSET $2
-            """, limit, offset)
-            return [dict(r) for r in rows]
+        """Lists connections via Supabase SDK."""
+        res = self.supabase.table("connections")\
+            .select("*, connection_performance(avg_latency_ms), connection_capabilities(supports_cdc, supports_incremental)")\
+            .order("created_at", desc=True)\
+            .range(offset, offset + limit - 1)\
+            .execute()
+        
+        # Flatten the nested response from Supabase joins
+        connections = []
+        for row in res.data:
+            perf = row.pop("connection_performance", [])
+            caps = row.pop("connection_capabilities", [])
+            row["avg_latency_ms"] = perf[0]["avg_latency_ms"] if perf else None
+            if caps:
+                row["supports_cdc"] = caps[0]["supports_cdc"]
+                row["supports_incremental"] = caps[0]["supports_incremental"]
+            else:
+                row["supports_cdc"] = False
+                row["supports_incremental"] = False
+            connections.append(row)
+            
+        return connections
 
+    @safe_execute()
     async def get_connection(self, connection_id: str) -> Optional[Dict[str, Any]]:
-        try:
-            p_uuid = uuid.UUID(connection_id)
-        except (ValueError, TypeError):
+        """Phase 2 Migration: Get connection with stats & caps."""
+        res = self.supabase.table("connections")\
+            .select("*, connection_performance(*), connection_capabilities(*)")\
+            .eq("id", connection_id)\
+            .execute()
+        
+        if not res.data:
             return None
+            
+        row = res.data[0]
+        perf = row.pop("connection_performance", [])
+        caps = row.pop("connection_capabilities", [])
+        
+        if perf: row.update(perf[0])
+        if caps: row.update(caps[0])
+        
+        return row
 
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT c.*, cp.avg_latency_ms, cp.avg_query_time_ms, cp.requests_per_minute, cp.error_rate,
-                       cc.supports_cdc, cc.supports_incremental, cc.supports_parallel_reads, cc.supports_transactions, cc.max_connections
-                FROM connections c
-                LEFT JOIN connection_performance cp ON c.id = cp.connection_id
-                LEFT JOIN connection_capabilities cc ON c.id = cc.connection_id
-                WHERE c.id = $1
-            """, p_uuid)
-            return dict(row) if row else None
-
+    @supabase_logger
     async def delete_connection(self, connection_id: str):
-        async with self.pool.acquire() as conn:
-            await conn.execute("DELETE FROM connections WHERE id = $1", uuid.UUID(connection_id))
+        """Deletes connection via SDK."""
+        self.supabase.table("connections").delete().eq("id", connection_id).execute()
+        invalidate_cache("list_connections")
         
         # Cleanup cached pool if it exists
         if connection_id in self._pool_cache:
@@ -65,89 +85,94 @@ class ConnectionService:
             except Exception:
                 pass
 
+    @safe_execute()
     async def create_connection(self, config: Dict[str, Any]):
-        async with self.pool.acquire() as conn:
-            port = config.get("port")
-            if not port:
-                try:
-                    connector_class = ConnectorRegistry.get_connector_class(config.get("type"))
-                    schema = connector_class.get_config_schema()
-                    port = schema.get("properties", {}).get("port", {}).get("default", 0)
-                except Exception:
-                    port = 0
+        """Phase 2 Migration: Create connection and sync configs."""
+        port = config.get("port")
+        if not port:
+            try:
+                connector_class = ConnectorRegistry.get_connector_class(config.get("type"))
+                schema = connector_class.get_config_schema()
+                port = schema.get("properties", {}).get("port", {}).get("default", 0)
+            except Exception:
+                port = 0
+        
+        conn_res = self.supabase.table("connections").insert({
+            "name": config.get("name"),
+            "type": config.get("type"),
+            "host": config.get("host"),
+            "port": port,
+            "username": config.get("username") or config.get("user"),
+            "ssl_enabled": config.get("ssl_enabled", False),
+        }).execute()
+        
+        if not conn_res.data:
+            raise RuntimeError("Failed to create connection")
             
-            conn_id = await conn.fetchval(
-                "INSERT INTO connections (name, type, host, port, database_name, username, ssl_enabled, security_level) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
-                config.get("name"), config.get("type"), config.get("host"), port,
-                config.get("database_name") or config.get("database"), 
-                config.get("username") or config.get("user"),
-                config.get("ssl_enabled", False),
-                config.get("security_level", "standard")
-            )
+        conn_id = conn_res.data[0]['id']
+        
+        # Use SecretService for credentials
+        if config.get("password"):
+            await self.secret_service.store_secret(str(conn_id), 'password', config.get("password"))
             
-            # Use SecretService for credentials
-            if config.get("password"):
-                await self.secret_service.store_secret(str(conn_id), 'password', config.get("password"))
-                
-            # Initial capability detection
-            await self.capability_service.detect_capabilities({**config, "connection_id": str(conn_id)})
+        # Initial capability detection
+        await self.capability_service.detect_capabilities({**config, "connection_id": str(conn_id)})
+        
+        # Persist Sync Configs
+        selected_tables = config.get("selected_tables", [])
+        sync_configs = config.get("sync_configs", {})
+        
+        sync_records = []
+        for table_meta in selected_tables:
+            table_name = table_meta.get("name") if isinstance(table_meta, dict) else table_meta
+            schema_name = table_meta.get("schema", "public") if isinstance(table_meta, dict) else "public"
+            table_sync = sync_configs.get(table_name, {})
             
-            # Persist Sync Configs
-            selected_tables = config.get("selected_tables", [])
-            sync_configs = config.get("sync_configs", {})
+            sync_records.append({
+                "connection_id": conn_id,
+                "table_name": table_name,
+                "schema_name": schema_name,
+                "sync_mode": table_sync.get("mode", "full_refresh"),
+                "cursor_field": table_sync.get("cursorField"),
+                "primary_key": table_sync.get("primaryKey"),
+                "selected_columns": table_sync.get("columns", [])
+            })
             
-            for table_meta in selected_tables:
-                table_name = table_meta.get("name") if isinstance(table_meta, dict) else table_meta
-                schema_name = table_meta.get("schema", "public") if isinstance(table_meta, dict) else "public"
-                
-                table_sync = sync_configs.get(table_name, {})
-                
-                await conn.execute("""
-                    INSERT INTO sync_configs (connection_id, table_name, schema_name, sync_mode, cursor_field, primary_key, selected_columns)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, 
-                conn_id, table_name, schema_name,
-                table_sync.get("mode", "full_refresh"),
-                table_sync.get("cursorField"),
-                table_sync.get("primaryKey"),
-                json.dumps(table_sync.get("columns", []))
-                )
-                
-            return {"id": str(conn_id), "status": "created"}
+        if sync_records:
+            self.supabase.table("sync_configs").insert(sync_records).execute()
             
+        invalidate_cache("list_connections")
+        return {"id": str(conn_id), "status": "created"}
+            
+    @safe_execute()
     async def update_connection(self, connection_id: str, config: Dict[str, Any]):
-        async with self.pool.acquire() as conn:
-            p_uuid = uuid.UUID(connection_id)
-            port = config.get("port")
-            if not port:
-                port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
-            
-            await conn.execute("""
-                UPDATE connections 
-                SET name = $1, host = $2, port = $3, database_name = $4, username = $5, ssl_enabled = $6, security_level = $7
-                WHERE id = $8
-            """, 
-            config.get("name"), config.get("host"), port,
-            config.get("database_name") or config.get("database"), 
-            config.get("username") or config.get("user"),
-            config.get("ssl_enabled", False),
-            config.get("security_level", "standard"),
-            p_uuid)
-            
-            # Update password if provided
-            if config.get("password"):
-                await self.secret_service.store_secret(connection_id, 'password', config.get("password"))
-            
-            # Invalidate cached pool
-            if connection_id in self._pool_cache:
-                try:
-                    old_pool = self._pool_cache.pop(connection_id)
-                    await old_pool.close()
-                except Exception:
-                    pass
-                    
-            return {"id": connection_id, "status": "updated"}
+        """Phase 2 Migration: Update connection metadata."""
+        port = config.get("port")
+        if not port:
+            port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
+        
+        self.supabase.table("connections").update({
+            "name": config.get("name"),
+            "host": config.get("host"),
+            "port": port,
+            "username": config.get("username") or config.get("user"),
+            "ssl_enabled": config.get("ssl_enabled", False),
+        }).eq("id", connection_id).execute()
+        
+        # Update password if provided
+        if config.get("password"):
+            await self.secret_service.store_secret(connection_id, 'password', config.get("password"))
+        
+        # Invalidate cached pool
+        if connection_id in self._pool_cache:
+            try:
+                old_pool = self._pool_cache.pop(connection_id)
+                await old_pool.close()
+            except Exception:
+                pass
+        
+        invalidate_cache("list_connections")
+        return {"id": connection_id, "status": "updated"}
 
     async def get_secrets(self, connection_id: str) -> Dict[str, Any]:
         """Fetches secrets via SecretService."""
@@ -233,15 +258,14 @@ class ConnectionService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    @safe_execute()
     async def _update_performance(self, connection_id: str, latency: int):
-        async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO connection_performance (connection_id, avg_latency_ms, updated_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (connection_id) DO UPDATE SET
-                avg_latency_ms = (connection_performance.avg_latency_ms + EXCLUDED.avg_latency_ms) / 2,
-                updated_at = NOW()
-            """, uuid.UUID(connection_id), float(latency))
+        """Phase 2 Migration: Upsert performance metrics."""
+        self.supabase.table("connection_performance").upsert({
+            "connection_id": connection_id,
+            "avg_latency_ms": float(latency),
+            "updated_at": "now()"
+        }).execute()
 
     async def get_schema(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Discovers the schema for a connection, using cache if available."""

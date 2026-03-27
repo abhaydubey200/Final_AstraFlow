@@ -1,19 +1,5 @@
 {
-  "connections": [
-    {
-      "id": "38e0164c-1d8f-4c0d-9256-7abb7e0ea6b6",
-      "name": "snowflake Connection",
-      "type": "snowflake",
-      "host": "HQZPZUW-MR31017",
-      "port": 443,
-      "database_name": "DS_GROUP_HR_DB",
-      "username": "ABHAY2004",
-      "ssl_enabled": false,
-      "security_level": "standard",
-      "created_at": "2026-03-24T06:06:05.557570",
-      "updated_at": "2026-03-24T06:06:05.557570"
-    }
-  ],
+  "connections": [],
   "connection_credentials": [
     {
       "connection_id": "f2bfdb75-75ff-435c-9edc-a94048a9787e",
@@ -28,15 +14,7 @@
       "created_at": "2026-03-24T06:06:06.207484"
     }
   ],
-  "connection_secrets": [
-    {
-      "id": "5965b318-f395-4693-864d-c11096c7a8b8",
-      "connection_id": "38e0164c-1d8f-4c0d-9256-7abb7e0ea6b6",
-      "secret_key": "password",
-      "secret_value": "fouFxOF/8AYyj6MTze/mx8N76DGYQHtVVyd/yeqMrVI=",
-      "created_at": "2026-03-24T06:06:06.227454"
-    }
-  ],
+  "connection_secrets": [],
   "connection_capabilities": [],
   "pipelines": [
     {
@@ -143,12 +121,5 @@
   "pipeline_checkpoints": [],
   "astra_worker_queue": [],
   "pipeline_logs": [],
-  "connection_performance": [
-    {
-      "id": "2d8cac11-15ea-4f33-aeb8-dacb507c07be",
-      "connection_id": "38e0164c-1d8f-4c0d-9256-7abb7e0ea6b6",
-      "avg_latency_ms": 5494.0,
-      "updated_at": "2026-03-24T07:13:59.640781"
-    }
-  ]
+  "connection_performance": []
 }

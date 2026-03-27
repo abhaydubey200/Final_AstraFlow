@@ -1,13 +1,15 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Any
+from core.supabase_client import supabase, supabase_logger
+from core.decorators import safe_execute
 
 logger = logging.getLogger(__name__)
 
 class AutoHealService:
-    def __init__(self, db_pool):
-        self.pool = db_pool
+    def __init__(self, db_pool: Any = None):
+        self.supabase = supabase
         self.running = False
         self._task = None
 
@@ -33,58 +35,43 @@ class AutoHealService:
                 logger.error(f"Error in AutoHeal loop: {e}")
                 await asyncio.sleep(10)
 
+    @safe_execute()
     async def heal_stuck_runs(self):
-        """Detect and recover runs stuck in 'running' status."""
-        async with self.pool.acquire() as conn:
-            # Threshold: 30 seconds for rapid testing in mock mode
-            threshold = datetime.utcnow() - timedelta(seconds=30)
+        """Detect and recover runs stuck in 'running' status using SDK."""
+        # Threshold: 1 hour for production safety (relaxed for manual testing if needed)
+        threshold = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        
+        # Find stuck runs
+        res = self.supabase.table("pipeline_runs").select("id").eq("status", "running").lt("created_at", threshold).execute()
+        stuck_runs = res.data or []
+        
+        for run in stuck_runs:
+            run_id = run['id']
+            logger.warning(f"Auto-Heal: Detected stuck pipeline run {run_id}. Attempting recovery...")
             
-            # Find stuck runs
-            stuck_runs = await conn.fetch(
-                "SELECT id FROM public.pipeline_runs WHERE status = 'running' AND updated_at < $1",
-                threshold
-            ) or []
+            # Mark as failed
+            self.supabase.table("pipeline_runs").update({
+                "status": "failed",
+                "error_message": "Auto-healed: Detection of stuck execution (timeout)",
+                "finished_at": "now()"
+            }).eq("id", run_id).execute()
             
-            for run in stuck_runs:
-                run_id = run['id']
-                logger.warning(f"Auto-Heal: Detected stuck pipeline run {run_id}. Attempting recovery...")
-                
-                # Mark as failed with recovery info
-                await conn.execute(
-                    "UPDATE public.pipeline_runs SET status = 'failed', error_message = $1, finished_at = $2 WHERE id = $3",
-                    "Auto-healed: Detection of stuck execution (timeout)",
-                    datetime.utcnow().isoformat(),
-                    run_id
-                )
-                
-                # Any active task_runs for this run should also be failed
-                await conn.execute(
-                    "UPDATE public.task_runs SET status = 'failed' WHERE pipeline_run_id = $1 AND status = 'running'",
-                    run_id
-                )
+            # Fail active task_runs
+            self.supabase.table("task_runs").update({"status": "failed"}).eq("pipeline_run_id", run_id).eq("status", "running").execute()
 
+    @safe_execute()
     async def heal_zombie_workers(self):
-        """Re-assign tasks from workers that have missed heartbeats."""
-        async with self.pool.acquire() as conn:
-            threshold = datetime.utcnow() - timedelta(minutes=2)
+        """Re-assign tasks from workers that have missed heartbeats using SDK."""
+        threshold = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        
+        res = self.supabase.table("worker_heartbeats").select("worker_id").lt("last_seen", threshold).neq("status", "offline").execute()
+        zombie_workers = res.data or []
+        
+        for worker in zombie_workers:
+            wid = worker['worker_id']
+            logger.warning(f"Auto-Heal: Detected zombie worker {wid}. Marking offline...")
             
-            zombie_workers = await conn.fetch(
-                "SELECT worker_id FROM public.worker_heartbeats WHERE last_seen < $1 AND status != 'offline'",
-                threshold
-            ) or []
-            
-            for worker in zombie_workers:
-                wid = worker['worker_id']
-                logger.warning(f"Auto-Heal: Detected zombie worker {wid}. Re-assigning tasks...")
-                
-                # Re-queue any 'running' tasks assigned to this worker (if we tracked worker_id in task_runs)
-                # For now, we'll use a simplified strategy: fail running tasks that are "too old"
-                # as the Persistent Retry mechanism will pick them up if they are re-queued by the scheduler.
-                
-                await conn.execute(
-                    "UPDATE public.worker_heartbeats SET status = 'offline' WHERE worker_id = $1",
-                    wid
-                )
+            self.supabase.table("worker_heartbeats").update({"status": "offline"}).eq("worker_id", wid).execute()
 
 # Global instances
 auto_heal_service = None

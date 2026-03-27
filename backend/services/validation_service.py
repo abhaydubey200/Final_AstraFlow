@@ -1,23 +1,22 @@
 import os
 import uuid
 import json
-import asyncpg
-import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from core.supabase_client import supabase, supabase_logger
+from core.decorators import safe_execute
 
 class ValidationService:
-    def __init__(self, pool: asyncpg.Pool):
-        self.pool = pool
+    def __init__(self, pool: Any = None):
+        # Phase 2 Migration: Use Supabase SDK
+        self.supabase = supabase
 
+    @safe_execute()
     async def get_rules_for_pipeline(self, pipeline_id: str) -> List[Dict[str, Any]]:
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM validation_rules WHERE pipeline_id = $1",
-                uuid.UUID(pipeline_id)
-            )
-            return [dict(r) for r in rows]
+        res = self.supabase.table("validation_rules").select("*").eq("pipeline_id", pipeline_id).execute()
+        return res.data if res.data else []
 
+    @safe_execute()
     async def validate_data(self, run_id: str, pipeline_id: str, sample_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Performs validation checks on a data sample against defined rules."""
         rules = await self.get_rules_for_pipeline(pipeline_id)
@@ -34,6 +33,8 @@ class ValidationService:
             error_message = None
             
             for row in sample_data:
+                if not expression: continue
+                
                 if "not null" in expression.lower():
                     col = expression.split()[0]
                     if row.get(col) is None:
@@ -41,6 +42,7 @@ class ValidationService:
                         error_message = f"Null value found in required column '{col}'"
                         break
                 elif "regex" in expression.lower():
+                    import re
                     parts = expression.split()
                     col = parts[0]
                     pattern = parts[2]
@@ -68,13 +70,11 @@ class ValidationService:
             "timestamp": datetime.now().isoformat()
         }
 
-    async def _log_result(self, run_id: str, rule_id: uuid.UUID, status: str, message: Optional[str]):
-        async with self.pool.acquire() as conn:
-            try:
-                # Fixed: Added pipeline_run_id to the insert to ensure correct linkage
-                await conn.execute(
-                    "INSERT INTO public.validation_results (pipeline_run_id, rule_id, status, message) VALUES ($1, $2, $3, $4)",
-                    uuid.UUID(str(run_id)), rule_id, status, message
-                )
-            except Exception as e:
-                print(f"Error logging validation result: {e}")
+    @safe_execute()
+    async def _log_result(self, run_id: str, rule_id: str, status: str, message: Optional[str]):
+        self.supabase.table("validation_results").insert({
+            "pipeline_run_id": run_id,
+            "rule_id": rule_id,
+            "status": status,
+            "message": message
+        }).execute()
