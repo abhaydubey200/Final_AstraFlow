@@ -11,6 +11,36 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+
+# Python
+__pycache__/
+.venv/
+venv/
+ENV/
+*.py[cod]
+*$py.class
+*.so
+
+# Generated outputs & logs
+*.log
+logs/
+*_out.txt
+*_results.txt
+*_report.txt
+api_health_check.txt
+audit_log*.txt
+sdk_test.log
+test_conn_err*.txt
+final_qa_out*.txt
+lint_output*.txt
+perf_output*.txt
+pytest_out*.txt
+qa_out.txt
+security_report*.txt
+test_out*.txt
+verify_output.txt
 
 # Editor directories and files
 .vscode/*
