@@ -33,23 +33,51 @@ def supabase_logger(func):
     return wrapper
 
 def validate_env():
-    """Phase 3: Global Configuration Validation"""
-    url = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-    if not url:
-        logger.critical("SUPABASE_FATAL: SUPABASE_URL is missing!")
-        raise RuntimeError("Missing Supabase URL configuration")
-
-    if not key:
-        logger.critical("SUPABASE_FATAL: SUPABASE_SERVICE_ROLE_KEY is missing!")
-        raise RuntimeError("Missing SERVICE ROLE KEY")
-
-    if "anon" in key.lower() or "publishable" in key.lower():
-        logger.critical("SUPABASE_FATAL: Security violation: Backend using anon key!")
-        raise RuntimeError("Invalid key: anon key used in backend")
+    """
+    Validates all required environment variables at startup.
     
-    logger.info("Supabase environment validation: PASSED")
+    Raises:
+        RuntimeError: If any required environment variable is missing or invalid.
+    """
+    required_vars = {
+        "SUPABASE_URL": os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL"),
+        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+        "SUPABASE_JWT_SECRET": os.getenv("SUPABASE_JWT_SECRET"),
+        "ASTRAFLOW_MASTER_KEY": os.getenv("ASTRAFLOW_MASTER_KEY"),
+    }
+    
+    # Check for missing variables
+    missing = [name for name, value in required_vars.items() if not value]
+    if missing:
+        error_msg = f"Missing required environment variables: {', '.join(missing)}"
+        logger.critical(f"ENV_VALIDATION_FAILED: {error_msg}")
+        logger.critical("Please set all required variables in .env file")
+        logger.critical("ASTRAFLOW_MASTER_KEY: Generate with 'openssl rand -hex 32'")
+        raise RuntimeError(error_msg)
+    
+    # Validate SUPABASE_SERVICE_ROLE_KEY (should not be anon key)
+    key = required_vars["SUPABASE_SERVICE_ROLE_KEY"]
+    if "anon" in key.lower() or "publishable" in key.lower():
+        error_msg = "Security violation: Backend must use SERVICE_ROLE_KEY, not anon/publishable key!"
+        logger.critical(f"SUPABASE_FATAL: {error_msg}")
+        raise RuntimeError(error_msg)
+    
+    # Validate ASTRAFLOW_MASTER_KEY format
+    try:
+        master_key_hex = required_vars["ASTRAFLOW_MASTER_KEY"]
+        key_bytes = bytes.fromhex(master_key_hex)
+        if len(key_bytes) != 32:
+            raise ValueError(f"Must be 32 bytes (64 hex characters), got {len(key_bytes)} bytes")
+    except ValueError as e:
+        error_msg = f"Invalid ASTRAFLOW_MASTER_KEY: {e}"
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
+    
+    logger.info("✅ Environment validation: PASSED")
+    logger.info(f"  - Supabase URL: {required_vars['SUPABASE_URL']}")
+    logger.info(f"  - JWT Secret: {'*' * 20}")
+    logger.info(f"  - Master Key: {'*' * 20}")
+    logger.info(f"  - Service Role Key: {'*' * 20}")
 
 def create_client_strict() -> Client:
     """Phase 2: Centralized Supabase Client (Single Source of Truth)"""

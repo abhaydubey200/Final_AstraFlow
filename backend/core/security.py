@@ -1,18 +1,43 @@
 import os
 import base64
+import logging
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from typing import Tuple
+
+logger = logging.getLogger(__name__)
 
 class SecurityUtils:
     @staticmethod
     def get_master_key() -> bytes:
-        """Retrieves or generates the master encryption key."""
+        """
+        Retrieves the master encryption key from environment.
+        
+        Raises:
+            ValueError: If ASTRAFLOW_MASTER_KEY is not set or invalid.
+        
+        Note:
+            Generate a key with: openssl rand -hex 32
+        """
         key_hex = os.getenv("ASTRAFLOW_MASTER_KEY")
+        
         if not key_hex:
-            # In development, use a fixed key if not set, but warn
-            # For production, this MUST be set in environment
-            return b'\x00' * 32  # 32-byte dev key (256 bits)
-        return bytes.fromhex(key_hex)
+            error_msg = (
+                "CRITICAL: ASTRAFLOW_MASTER_KEY environment variable is not set. "
+                "This key is required for encrypting sensitive data. "
+                "Generate one using: openssl rand -hex 32"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        try:
+            key_bytes = bytes.fromhex(key_hex)
+            if len(key_bytes) != 32:
+                raise ValueError(f"Key must be exactly 32 bytes (256 bits), got {len(key_bytes)} bytes")
+            return key_bytes
+        except ValueError as e:
+            error_msg = f"Invalid ASTRAFLOW_MASTER_KEY format: {e}. Must be a 64-character hex string."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     @staticmethod
     def encrypt(data: str) -> Tuple[str, str]:

@@ -1,15 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import MetricCard from "@/components/MetricCard";
 import StatusBadge from "@/components/StatusBadge";
-import { Activity, CheckCircle, XCircle, Clock, Plus, GitBranch, Shield } from "lucide-react";
+import { Activity, CheckCircle, XCircle, Clock, Plus, GitBranch, Shield, TrendingUp, Database } from "lucide-react";
 import DashboardSkeleton from "@/components/DashboardSkeleton";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 import { usePipelines } from "@/hooks/use-pipelines";
 import { usePipelineRuns } from "@/hooks/use-executions";
 import { useConnections } from "@/hooks/use-connections";
-import { useMemo } from "react";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -42,21 +42,27 @@ const Dashboard = () => {
 
   const recentRuns = allRuns.slice(0, 8);
 
-  const getPipelineName = (id: string) => pipelines.find((p) => p.id === id)?.name || "Unknown";
+  // Memoize pipeline name lookup for performance
+  const pipelineMap = useMemo(
+    () => new Map(pipelines.map((p) => [p.id, p.name])),
+    [pipelines]
+  );
+  const getPipelineName = useCallback((id: string) => pipelineMap.get(id) || "Unknown", [pipelineMap]);
 
-  const formatDuration = (start: string, end: string | null) => {
+  // Memoize format functions
+  const formatDuration = useCallback((start: string, end: string | null) => {
     if (!end) return "—";
     const ms = new Date(end).getTime() - new Date(start).getTime();
     return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-  };
+  }, []);
 
-  const formatRows = (n: number) => {
+  const formatRows = useCallback((n: number) => {
     if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
     if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
     return String(n);
-  };
+  }, []);
 
-  const formatTimeAgo = (d: string) => {
+  const formatTimeAgo = useCallback((d: string) => {
     const diff = Date.now() - new Date(d).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "Just now";
@@ -64,7 +70,7 @@ const Dashboard = () => {
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs} hr ago`;
     return `${Math.floor(hrs / 24)}d ago`;
-  };
+  }, []);
 
   const statusMap = (s: string) => {
     if (s === "success") return "success" as const;
@@ -96,8 +102,142 @@ const Dashboard = () => {
       </div>
 
       {!hasPipelines ? (
-        <div className="rounded-lg border border-border bg-card p-16 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+        <EmptyState
+          icon={GitBranch}
+          title="Welcome to AstraFlow"
+          description="Create your first data pipeline to start transforming and moving data across your systems. Connect to databases, transform data, and orchestrate complex workflows with ease."
+          action={{
+            label: "Create Your First Pipeline",
+            onClick: () => navigate("/pipelines/new"),
+            icon: Plus,
+          }}
+          secondaryAction={{
+            label: "Explore Documentation",
+            onClick: () => navigate("/docs"),
+          }}
+          className="min-h-[400px]"
+        />
+      ) : (
+        <>
+          {/* Metrics Grid - Improved Responsive Design */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+            <MetricCard
+              title="Success Rate"
+              value={successRate}
+              icon={CheckCircle}
+              trend={successRuns > 0 ? `${successRuns} successful` : undefined}
+              className="hover:shadow-lg transition-shadow"
+            />
+            <MetricCard
+              title="Total Runs"
+              value={filteredRuns.length}
+              icon={Activity}
+              trend={`${timeRange} period`}
+              className="hover:shadow-lg transition-shadow"
+            />
+            <MetricCard
+              title="Failed Runs"
+              value={failedRuns}
+              icon={XCircle}
+              trend={failedRuns > 0 ? "Needs attention" : "All good"}
+              variant={failedRuns > 0 ? "destructive" : "default"}
+              className="hover:shadow-lg transition-shadow"
+            />
+            <MetricCard
+              title="Avg Latency"
+              value={avgLatency}
+              icon={Clock}
+              trend={`~${totalRows > 0 ? formatRows(totalRows) : "0"} rows`}
+              className="hover:shadow-lg transition-shadow"
+            />
+          </div>
+
+          {/* Recent Runs Table - Enhanced */}
+          <div className="rounded-lg border border-border bg-card overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-border bg-card/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-display font-bold text-foreground">Recent Pipeline Runs</h2>
+                  <p className="text-sm text-muted-foreground mt-1">Latest executions across all pipelines</p>
+                </div>
+                <button
+                  onClick={() => navigate("/logs")}
+                  className="text-sm font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1 group"
+                >
+                  View All
+                  <Activity className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </div>
+            </div>
+
+            {recentRuns.length === 0 ? (
+              <div className="p-12">
+                <EmptyState
+                  icon={TrendingUp}
+                  title="No runs yet"
+                  description="Execute a pipeline to see run history and metrics here."
+                  action={{
+                    label: "Run a Pipeline",
+                    onClick: () => navigate("/pipelines"),
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted/30">
+                    <tr className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <th className="px-6 py-3">Pipeline</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="px-6 py-3">Duration</th>
+                      <th className="px-6 py-3">Rows</th>
+                      <th className="px-6 py-3">Started</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {recentRuns.map((run) => (
+                      <tr
+                        key={run.id}
+                        onClick={() => navigate(`/logs?run=${run.id}`)}
+                        className="hover:bg-muted/30 transition-colors cursor-pointer group"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <GitBranch className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                            <span className="font-medium text-foreground group-hover:text-primary transition-colors">
+                              {getPipelineName(run.pipeline_id)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <StatusBadge status={statusMap(run.status)} />
+                        </td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground font-mono">
+                          {formatDuration(run.start_time, run.end_time)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground font-mono">
+                          {formatRows(run.rows_processed)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground">
+                          {formatTimeAgo(run.start_time)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Onboarding Wizard */}
+      <OnboardingWizard isOpen={isWizardOpen} onClose={() => setIsWizardOpen(false)} />
+    </div>
+  );
+};
+
+export default Dashboard;
             <GitBranch className="w-6 h-6 text-primary" />
           </div>
           <h3 className="text-sm font-display font-semibold text-foreground">No pipelines yet</h3>
