@@ -31,13 +31,21 @@ app = FastAPI(title="AstraFlow API", version="2.5.0")
 app.state.limiter = limiter
 app.state.db_pool = None
 
-# CORS Configuration
+# CORS Configuration - Restrict origins based on environment
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8080").split(",")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# In production, NEVER use wildcard origins
+if ENVIRONMENT == "production" and "*" in ALLOWED_ORIGINS:
+    raise ValueError("CORS wildcard (*) is not allowed in production. Set ALLOWED_ORIGINS environment variable.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
 
 # Register Centralized Global Exception Handler

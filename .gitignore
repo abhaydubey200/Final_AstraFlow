@@ -11,8 +11,14 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Environment files - NEVER COMMIT THESE
 .env
-.env.*
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*.local
 
 # Python
 __pycache__/
