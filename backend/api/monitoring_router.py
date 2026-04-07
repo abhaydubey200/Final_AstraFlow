@@ -65,8 +65,19 @@ async def get_alert_rules(pipeline_id: Optional[str] = None):
 @router.get("/metrics")
 async def get_metrics(request: Request):
     pool: asyncpg.Pool = request.app.state.db_pool
-    async with pool.acquire() as conn:
-        try:
+    
+    # Graceful degradation - return defaults if DB unavailable
+    if not pool:
+        return {
+            "totalRows": 0,
+            "rowsPerSec": 0,
+            "queuePending": 0,
+            "alertDelivered": 0,
+            "successRate": 100.0
+        }
+    
+    try:
+        async with pool.acquire() as conn:
             # Aggregate real metrics from pipeline_runs and checkpoints
             metrics = await conn.fetchrow("""
                 SELECT 
@@ -79,34 +90,43 @@ async def get_metrics(request: Request):
                 WHERE end_time > NOW() - INTERVAL '24 hours'
             """)
             return dict(metrics)
-        except Exception as e:
-            # Fallback for dev if functions/tables don't exist yet
-            return {
-                "totalRows": 0,
-                "rowsPerSec": 0,
-                "queuePending": 0,
-                "alertDelivered": 0,
-                "successRate": 100.0
-            }
+    except Exception as e:
+        # Fallback for dev if functions/tables don't exist yet
+        return {
+            "totalRows": 0,
+            "rowsPerSec": 0,
+            "queuePending": 0,
+            "alertDelivered": 0,
+            "successRate": 100.0
+        }
 
 @router.get("/worker-status")
 async def get_worker_status(request: Request):
     pool: asyncpg.Pool = request.app.state.db_pool
-    async with pool.acquire() as conn:
-        # Query real worker heartbeats
-        rows = await conn.fetch("""
-            SELECT 
-                worker_id as id,
-                status,
-                last_heartbeat,
-                (metadata->>'tasks')::int as tasks,
-                (metadata->>'cpu')::float as cpu,
-                (metadata->>'memory')::float as ram
-            FROM worker_heartbeats
-            WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
-            ORDER BY last_heartbeat DESC
-        """)
-        return [dict(r) for r in rows]
+    
+    # Graceful degradation - return empty array if DB unavailable
+    if not pool:
+        return []
+    
+    try:
+        async with pool.acquire() as conn:
+            # Query real worker heartbeats
+            rows = await conn.fetch("""
+                SELECT 
+                    worker_id as id,
+                    status,
+                    last_heartbeat,
+                    (metadata->>'tasks')::int as tasks,
+                    (metadata->>'cpu')::float as cpu,
+                    (metadata->>'memory')::float as ram
+                FROM worker_heartbeats
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
+                ORDER BY last_heartbeat DESC
+            """)
+            return [dict(r) for r in rows]
+    except Exception as e:
+        # Return empty array if table doesn't exist or query fails
+        return []
 
 @router.get("/queue-metrics")
 async def get_queue_metrics(request: Request):
@@ -248,11 +268,22 @@ async def get_impact_analysis(
 
 @router.get("/audit-logs")
 async def get_audit_trail(
+    request: Request,
     resource_type: Optional[str] = None, 
-    user_id: Optional[str] = None,
-    service: GovernanceService = Depends(get_governance_service)
+    user_id: Optional[str] = None
 ):
-    return await service.get_audit_trail(resource_type, user_id)
+    """Get audit trail. Returns empty array if service unavailable."""
+    try:
+        pool = request.app.state.db_pool
+        if not pool:
+            return []
+        
+        service = GovernanceService(pool)
+        return await service.get_audit_trail(resource_type, user_id)
+    except Exception as e:
+        # Return empty array if service fails or isn't initialized
+        print(f"Audit logs error: {e}")
+        return []
 
 @router.post("/workers/{worker_id}/reboot")
 async def reboot_worker(worker_id: str, request: Request):

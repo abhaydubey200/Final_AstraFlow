@@ -129,7 +129,7 @@ export const OnboardingWizard = ({ isOpen, onClose }: OnboardingWizardProps) => 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Connection Name</Label>
-                      <Input placeholder="Marketplace DB" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                      <Input placeholder="Source Database" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
                     </div>
                     <div className="space-y-2">
                       <Label>Host</Label>

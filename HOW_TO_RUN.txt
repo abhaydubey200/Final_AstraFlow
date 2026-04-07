@@ -1,0 +1,326 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                  🚀 ASTRAFLOW - COMPLETE COMMAND GUIDE 🚀                    ║
+║                                                                              ║
+║                         Everything You Need to Run                           ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📌 DOCUMENTATION FILES CREATED
+═══════════════════════════════════════════════════════════════════════════════
+
+I've created comprehensive command documentation for you:
+
+  1. RUN_APPLICATION_COMMANDS.md      📘 Complete command reference
+     └─ 15,000+ characters
+     └─ Every command explained
+     └─ Organized by category
+     └─ Examples and workflows
+
+  2. COMMANDS_CHEATSHEET.txt          ⚡ Quick reference card
+     └─ 13,000+ characters
+     └─ Most common commands
+     └─ Easy visual layout
+     └─ Perfect for daily use
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 THE FASTEST WAY TO START (3 COMMANDS!)
+═══════════════════════════════════════════════════════════════════════════════
+
+  FIRST TIME ONLY:
+  ────────────────────────────────────────────────────────────────────────────
+
+  1. Setup Environment
+     copy .env.example .env
+     notepad .env
+     (Add your database credentials)
+
+  2. Install Everything
+     npm install
+     cd backend
+     python -m venv venv
+     venv\Scripts\activate
+     pip install -r requirements.txt
+     cd ..
+
+  3. Setup Database
+     python scripts\database\setup_database.py
+
+
+  EVERY TIME AFTER:
+  ────────────────────────────────────────────────────────────────────────────
+
+  Just run this ONE command:
+  
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │                                                                          │
+  │                       start_astraflow.bat                                │
+  │                                                                          │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  That's it! 🎉
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📖 COMMAND CATEGORIES
+═══════════════════════════════════════════════════════════════════════════════
+
+  RUN_APPLICATION_COMMANDS.md contains commands for:
+
+  ✅ First Time Setup                  Complete installation guide
+  ✅ Quick Start                       One-command startup
+  ✅ Individual Services               Frontend/Backend separately
+  ✅ Development                       Dev server, hot reload
+  ✅ Database Management               Setup, migrations, health checks
+  ✅ Testing                          Frontend, backend, integration tests
+  ✅ Docker                           Container management
+  ✅ Build & Deploy                   Production builds
+  ✅ Troubleshooting                  Fix common issues
+  ✅ Development Tools                Linting, security scans
+  ✅ Monitoring                       Performance, logging
+
+
+═══════════════════════════════════════════════════════════════════════════════
+⚡ MOST COMMON COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
+
+  START APPLICATION:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  start_astraflow.bat             Start everything                        │
+  │  start_frontend.bat              Frontend only                           │
+  │  start_backend.bat               Backend only                            │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  DEVELOPMENT:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  npm run dev                     Start dev server                        │
+  │  npm run build                   Build for production                    │
+  │  npm run test                    Run tests                               │
+  │  npm run lint                    Check code quality                      │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  BACKEND:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  cd backend                                                              │
+  │  venv\Scripts\activate                                                   │
+  │  python main.py                  Start backend                           │
+  │  pytest                          Run tests                               │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  DATABASE:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  python scripts\database\check_db.py          Health check               │
+  │  python scripts\database\setup_database.py    Initial setup              │
+  │  python scripts\database\apply_migrations.py  Run migrations             │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🌐 ACCESS URLS (After Starting)
+═══════════════════════════════════════════════════════════════════════════════
+
+  Frontend Application:   http://localhost:5173
+  Backend API:            http://localhost:8000
+  API Documentation:      http://localhost:8000/docs
+  Alternative API Docs:   http://localhost:8000/redoc
+  Health Check:           http://localhost:8000/health
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🐳 DOCKER COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
+
+  START WITH DOCKER:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  docker-compose up               Start all services                      │
+  │  docker-compose up -d            Start in background                     │
+  │  docker-compose up --build       Build and start                         │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  MANAGE DOCKER:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  docker-compose down             Stop all services                       │
+  │  docker-compose logs -f          View logs                               │
+  │  docker-compose ps               Check status                            │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🧪 TESTING COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
+
+  FRONTEND:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  npm run test                    Run all tests                           │
+  │  npm run test:watch              Watch mode                              │
+  │  npm run test -- --coverage      With coverage                           │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  BACKEND:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  cd backend                                                              │
+  │  venv\Scripts\activate                                                   │
+  │  pytest                          All tests                               │
+  │  pytest --cov                    With coverage                           │
+  │  pytest -v                       Verbose                                 │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🔧 DEVELOPMENT WORKFLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+  DAILY WORKFLOW:
+  
+  1. Start Application
+     └─ start_astraflow.bat
+  
+  2. Make Changes
+     └─ Edit code in your IDE
+  
+  3. Test Changes
+     └─ Frontend auto-reloads (Vite HMR)
+     └─ Backend auto-reloads (uvicorn --reload)
+  
+  4. Run Tests
+     └─ npm run test
+     └─ cd backend && pytest
+  
+  5. Commit
+     └─ npm run lint
+     └─ git add .
+     └─ git commit -m "message"
+     └─ git push
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🆘 TROUBLESHOOTING QUICK FIX
+═══════════════════════════════════════════════════════════════════════════════
+
+  APPLICATION WON'T START:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  taskkill /F /IM node.exe        Kill Node processes                     │
+  │  taskkill /F /IM python.exe      Kill Python processes                   │
+  │  rmdir /s /q node_modules        Clean node_modules                      │
+  │  npm install                     Reinstall                               │
+  │  start_astraflow.bat             Try again                               │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  PORT ALREADY IN USE:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  netstat -ano | findstr :5173    Find process on port 5173              │
+  │  netstat -ano | findstr :8000    Find process on port 8000              │
+  │  taskkill /PID <number> /F       Kill specific process                   │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  DATABASE CONNECTION ISSUES:
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  python scripts\database\check_keys.py       Verify credentials          │
+  │  python scripts\database\check_db.py         Test connection             │
+  │  notepad .env                                Check environment vars       │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📚 WHERE TO FIND MORE HELP
+═══════════════════════════════════════════════════════════════════════════════
+
+  📘 RUN_APPLICATION_COMMANDS.md      Complete command reference
+  ⚡ COMMANDS_CHEATSHEET.txt          Quick reference card
+  📖 README.md                        Project overview
+  📁 PROJECT_STRUCTURE.md             Directory structure
+  🔧 docs\SETUP_GUIDE.md              Detailed setup
+  🆘 docs\EMERGENCY_FIX.md            Troubleshooting
+  🔌 docs\CONNECTION_GUIDE.md         Database connections
+  👶 docs\BEGINNERS_GUIDE.md          For new developers
+
+
+═══════════════════════════════════════════════════════════════════════════════
+✅ COMPLETE SETUP CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+  FIRST TIME SETUP:
+  
+  [ ] Clone repository
+  [ ] Copy .env.example to .env
+  [ ] Edit .env with your credentials
+  [ ] Run: npm install
+  [ ] Run: cd backend && python -m venv venv
+  [ ] Run: venv\Scripts\activate
+  [ ] Run: pip install -r requirements.txt
+  [ ] Run: cd ..
+  [ ] Run: python scripts\database\setup_database.py
+  [ ] Run: python scripts\database\apply_migrations.py
+  [ ] Run: start_astraflow.bat
+  [ ] Open: http://localhost:5173
+  [ ] Verify everything works!
+
+
+═══════════════════════════════════════════════════════════════════════════════
+💡 PRO TIPS
+═══════════════════════════════════════════════════════════════════════════════
+
+  ✨ Use multiple terminals for development:
+     • Terminal 1: npm run dev (frontend)
+     • Terminal 2: cd backend && python main.py (backend)
+     • Terminal 3: npm run test:watch (tests)
+
+  ✨ Check logs regularly:
+     • Frontend: Browser console (F12)
+     • Backend: Terminal output
+     • Saved logs: logs\tests\, logs\performance\
+
+  ✨ Before committing:
+     • Run: npm run lint
+     • Run: npm run test
+     • Run: npm run build
+
+  ✨ Keep dependencies updated:
+     • Frontend: npm update
+     • Backend: pip install --upgrade -r requirements.txt
+
+  ✨ Use Docker for consistent environment:
+     • docker-compose up
+     • No need to manage Python venv or Node versions
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 QUICK REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+  START:           start_astraflow.bat
+  FRONTEND:        npm run dev
+  BACKEND:         cd backend && venv\Scripts\activate && python main.py
+  TEST:            npm run test && cd backend && pytest
+  BUILD:           npm run build
+  DOCKER:          docker-compose up
+  CHECK DB:        python scripts\database\check_db.py
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📞 NEED MORE HELP?
+═══════════════════════════════════════════════════════════════════════════════
+
+  For detailed explanations, examples, and advanced usage:
+  
+  👉 Open: RUN_APPLICATION_COMMANDS.md
+  
+  This file contains:
+  • 15,000+ characters of documentation
+  • Step-by-step instructions
+  • All commands explained
+  • Common workflows
+  • Troubleshooting guide
+  • And much more!
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                            🎉 YOU'RE ALL SET! 🎉
+
+                        Just run: start_astraflow.bat
+
+═══════════════════════════════════════════════════════════════════════════════

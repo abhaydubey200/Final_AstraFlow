@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { 
-  ArrowLeft, Database, Table, Info, GitBranch, Shield, 
+  ArrowLeft, Database, Table, Info, GitBranch, 
   Search, Filter, ChevronRight, Activity, Tag, 
   ExternalLink, Clock, User, AlertCircle, Save
 } from "lucide-react";
@@ -133,22 +133,6 @@ export default function DatasetDetail({ dataset, onBack }: DatasetDetailProps) {
             </div>
           </div>
 
-          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-            <h3 className="text-xs font-display font-bold text-foreground uppercase tracking-wider">Governance</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">PII Detection</span>
-                <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[9px] uppercase font-bold">Action Required</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Compliance</span>
-                <div className="flex items-center gap-1.5">
-                   <Shield className="w-3 h-3 text-emerald-500" />
-                   <span className="text-xs font-bold">SOC2 / GDPR</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Content Tabs */}
@@ -162,7 +146,7 @@ export default function DatasetDetail({ dataset, onBack }: DatasetDetailProps) {
             </TabsList>
 
             <TabsContent value="overview" className="pt-6 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                  <div className="bg-card border border-border rounded-xl p-6 space-y-4">
                     <div className="flex justify-between items-center">
                        <h4 className="text-sm font-bold flex items-center gap-2">
@@ -182,14 +166,6 @@ export default function DatasetDetail({ dataset, onBack }: DatasetDetailProps) {
                          <Plus className="w-3 h-3" />
                        </button>
                     </div>
-                 </div>
-
-                 <div className="bg-card border border-border rounded-xl p-6 space-y-4 text-center flex flex-col items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 mb-2">
-                       <Shield className="w-6 h-6" />
-                    </div>
-                    <h4 className="text-sm font-bold">Compliance Status: Verified</h4>
-                    <p className="text-[11px] text-muted-foreground">Last security audit completed on March 08, 2026.</p>
                  </div>
               </div>
 

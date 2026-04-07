@@ -47,18 +47,3 @@ async def get_connection_service(request: Request) -> ConnectionService:
 
 async def get_metadata_service(request: Request) -> MetadataService:
     return MetadataService(request.app.state.db_pool)
-
-async def get_analytics_service(request: Request) -> AnalyticsService:
-    return AnalyticsService(request.app.state.db_pool)
-
-async def get_ai_insight_service(request: Request) -> AIInsightService:
-    return AIInsightService(request.app.state.db_pool)
-
-async def get_validation_service(request: Request) -> ValidationService:
-    return ValidationService(request.app.state.db_pool)
-
-async def get_lineage_service(request: Request) -> LineageService:
-    return LineageService(request.app.state.db_pool)
-
-async def get_governance_service(request: Request) -> GovernanceService:
-    return GovernanceService(request.app.state.db_pool)

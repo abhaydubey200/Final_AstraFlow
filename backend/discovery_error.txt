@@ -293,3 +293,39 @@ Has Password: True
 Password Length: 16
 Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
 Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-04-07 11:01:43.977954
+Connection ID: None
+Connector Type: snowflake
+Target: databases
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: N/A
+
+--- Discovery Attempt --- 2026-04-07 11:01:50.092219
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: ASTRA_TARGET_DB
+
+--- Discovery Attempt --- 2026-04-07 11:01:53.575828
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB
+
+--- Discovery Attempt --- 2026-04-07 11:01:53.583151
+Connection ID: None
+Connector Type: snowflake
+Target: tables
+Has Password: True
+Password Length: 16
+Normalized Config Keys: ['host', 'port', 'database', 'username', 'password', 'ssl_enabled', 'warehouse', 'schema', 'security_level']
+Discovery Context - DB: MFD_DB

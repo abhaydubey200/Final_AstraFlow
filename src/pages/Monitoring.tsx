@@ -89,7 +89,7 @@ export default function Monitoring() {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-display font-bold">Operational Observability</h1>
         <p className="text-sm text-muted-foreground max-w-2xl">
-          Real-time resource utilization, cost distribution, and system performance health.
+          Real-time resource utilization and system performance health.
         </p>
       </div>
 

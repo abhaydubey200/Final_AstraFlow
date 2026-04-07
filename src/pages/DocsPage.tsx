@@ -242,29 +242,6 @@ const sections: DocSection[] = [
     ),
   },
   {
-    id: "governance",
-    title: "Governance",
-    icon: Shield,
-    content: (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          The Governance page provides a security overview, compliance checklist, and audit trail for your data operations.
-        </p>
-        <h3 className="text-sm font-semibold text-foreground">Security Posture</h3>
-        <ul className="space-y-1.5 text-sm text-muted-foreground">
-          <li>• <strong className="text-foreground">RLS Policies</strong> — Shows whether Row-Level Security is active on all database tables.</li>
-          <li>• <strong className="text-foreground">SSL Connections</strong> — Ratio of SSL-enabled connections vs total.</li>
-          <li>• <strong className="text-foreground">Pipelines</strong> — Total and active pipeline count.</li>
-          <li>• <strong className="text-foreground">Auth Status</strong> — Current authentication model status.</li>
-        </ul>
-        <h3 className="text-sm font-semibold text-foreground mt-6">Data Protection Checklist</h3>
-        <p className="text-sm text-muted-foreground">A checklist of security best practices with green checkmarks for implemented items and grey circles for planned features.</p>
-        <h3 className="text-sm font-semibold text-foreground mt-6">Audit Trail</h3>
-        <p className="text-sm text-muted-foreground">A table of the 20 most recent pipeline executions showing pipeline name, status, who triggered it, start time, and rows processed. Useful for compliance audits and troubleshooting.</p>
-      </div>
-    ),
-  },
-  {
     id: "alerts",
     title: "Alerts & Notifications",
     icon: Bell,

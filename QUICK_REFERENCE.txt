@@ -1,0 +1,182 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                  AstraFlow - Quick Reference Card                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📂 FOLDER QUICK GUIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /backend              → Python backend code
+  /src                  → React frontend code
+  /docs                 → All documentation
+  /scripts              → Utility scripts (testing, database, utilities)
+  /tools                → Linters and scanners
+  /logs                 → All log files (gitignored)
+  /public               → Static assets
+  /deploy               → Deployment configs
+  /supabase             → Supabase configuration
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 QUICK COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  START APPLICATION:
+  └─ start_astraflow.bat            Start everything
+  └─ start_backend.bat              Backend only
+  └─ start_frontend.bat             Frontend only
+
+  DEVELOPMENT:
+  └─ npm run dev                    Start dev server
+  └─ npm run build                  Build for production
+  └─ npm run lint                   Run linter
+  └─ npm run test                   Run tests
+
+  DATABASE:
+  └─ python scripts/database/setup_database.py    Setup DB
+  └─ python scripts/database/check_db.py          Health check
+  └─ python scripts/database/apply_migrations.py  Migrations
+
+  TESTING:
+  └─ npm run test                   Frontend tests
+  └─ cd backend && pytest           Backend tests
+  └─ python scripts/testing/audit_test.py         Audit test
+
+  DOCKER:
+  └─ docker-compose up              Start services
+  └─ docker-compose up -d           Start in background
+  └─ docker-compose down            Stop services
+
+  RESTRUCTURING:
+  └─ RESTRUCTURE_PROJECT.bat        Reorganize project
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🚀 START HERE.txt                    ← Start here!
+  README.md                            Main readme
+  PROJECT_STRUCTURE.md                 Complete structure
+  RESTRUCTURING_GUIDE.md               Before/after guide
+  PROJECT_TREE.txt                     Visual tree
+
+  In /docs folder:
+  ├─ BEGINNERS_GUIDE.md               For beginners
+  ├─ QUICKSTART.md                    Quick start
+  ├─ SETUP_GUIDE.md                   Setup guide
+  ├─ CONNECTION_GUIDE.md              DB connections
+  ├─ EMERGENCY_FIX.md                 Troubleshooting
+  └─ HOW_TO_START.md                  Getting started
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 CONFIGURATION FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  package.json                        Node dependencies
+  tsconfig.json                       TypeScript config
+  vite.config.ts                      Build config
+  tailwind.config.ts                  Styling config
+  eslint.config.js                    Linting rules
+  docker-compose.yml                  Docker services
+  .env.example                        Env template
+  .env                                Your env vars (gitignored)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 COMMON TASKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FIRST TIME SETUP:
+  1. Copy .env.example to .env
+  2. Edit .env with your credentials
+  3. Run: npm install
+  4. Run: cd backend && pip install -r requirements.txt
+  5. Run: python scripts/database/setup_database.py
+  6. Run: start_astraflow.bat
+
+  DAILY DEVELOPMENT:
+  1. Start: start_astraflow.bat
+  2. Edit code
+  3. Test: npm run test
+  4. Lint: npm run lint
+  5. Build: npm run build
+
+  BEFORE COMMIT:
+  1. Run tests: npm run test
+  2. Run lint: npm run lint
+  3. Check build: npm run build
+  4. Review changes: git diff
+  5. Commit: git commit -m "message"
+
+  TROUBLESHOOTING:
+  1. Check docs/EMERGENCY_FIX.md
+  2. Verify .env file
+  3. Check logs/ folder
+  4. Run health check: python scripts/database/check_db.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 URLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Frontend:     http://localhost:5173
+  Backend:      http://localhost:8000
+  API Docs:     http://localhost:8000/docs
+  API ReDoc:    http://localhost:8000/redoc
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 PROJECT INFO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Name:         AstraFlow
+  Type:         Data Integration Platform
+  Frontend:     React 18 + TypeScript + Vite
+  Backend:      Python + FastAPI
+  UI:           TailwindCSS + shadcn/ui
+  Database:     Supabase, Snowflake, MSSQL
+  State:        TanStack Query
+  Testing:      Vitest (Frontend), Pytest (Backend)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🆘 HELP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Can't start?              → docs/EMERGENCY_FIX.md
+  Connection issues?        → docs/CONNECTION_GUIDE.md
+  Need setup help?          → docs/SETUP_GUIDE.md
+  New to project?           → docs/BEGINNERS_GUIDE.md
+  Quick reference?          → docs/QUICKSTART.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ CHECKLIST - AFTER RESTRUCTURING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ ] Run RESTRUCTURE_PROJECT.bat
+  [ ] Review PROJECT_STRUCTURE.md
+  [ ] Test with start_astraflow.bat
+  [ ] Update hard-coded paths (if any)
+  [ ] Replace README.md with README_CLEAN.md
+  [ ] Commit changes to git
+  [ ] Celebrate! 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 PRO TIPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Always check .env before starting
+  • Run tests before committing
+  • Keep logs/ folder gitignored
+  • Use Docker for consistent environments
+  • Read docs/BEGINNERS_GUIDE.md if new
+  • Check logs/ for debugging
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╔══════════════════════════════════════════════════════════════════════╗
+║              Save this file for quick reference! 🔖                  ║
+╚══════════════════════════════════════════════════════════════════════╝

@@ -1,0 +1,206 @@
+AstraFlow Project Structure - Visual Tree
+═══════════════════════════════════════════════════════════════════════
+
+Final_AstraFlow/
+│
+├── 🎨 FRONTEND
+│   ├── src/                          Frontend React Application
+│   │   ├── components/              UI Components (shadcn/ui)
+│   │   ├── pages/                   Page Components
+│   │   ├── hooks/                   Custom React Hooks
+│   │   ├── integrations/            API Integrations
+│   │   ├── lib/                     Utility Libraries
+│   │   ├── types/                   TypeScript Types
+│   │   ├── test/                    Frontend Tests
+│   │   ├── App.tsx                  Main App Component
+│   │   └── main.tsx                 Entry Point
+│   │
+│   ├── public/                       Static Assets
+│   │   ├── images/
+│   │   ├── fonts/
+│   │   └── favicon.ico
+│   │
+│   └── index.html                    HTML Template
+│
+├── 🐍 BACKEND
+│   └── backend/                      Python FastAPI Backend
+│       ├── api/                     API Routes & Endpoints
+│       │   ├── routes/
+│       │   └── endpoints/
+│       │
+│       ├── core/                    Core Business Logic
+│       │   ├── config.py
+│       │   ├── security.py
+│       │   └── database.py
+│       │
+│       ├── services/                External Services
+│       │   ├── snowflake/          Snowflake Integration
+│       │   ├── mssql/              MSSQL Integration
+│       │   └── supabase/           Supabase Integration
+│       │
+│       ├── tests/                   Backend Tests
+│       │   ├── test_api/
+│       │   └── test_services/
+│       │
+│       ├── main.py                  Application Entry
+│       └── requirements.txt         Python Dependencies
+│
+├── 📚 DOCUMENTATION
+│   └── docs/                         All Documentation
+│       ├── BEGINNERS_GUIDE.md       Start Here for Newbies
+│       ├── QUICKSTART.md            Quick Start Guide
+│       ├── SETUP_GUIDE.md           Detailed Setup
+│       ├── CONNECTION_GUIDE.md      Database Connections
+│       ├── HOW_TO_START.md          Getting Started
+│       ├── START_NOW.md             Immediate Start
+│       ├── HOW_TO_SEND_ERRORS.md    Error Reporting
+│       ├── EMERGENCY_FIX.md         Troubleshooting
+│       └── STABILIZATION_PROGRESS.md Progress Tracking
+│
+├── 🔧 SCRIPTS
+│   └── scripts/                      Utility Scripts
+│       ├── testing/                 Test Scripts
+│       │   ├── audit_test.py       Audit Testing
+│       │   ├── deep_audit.py       Deep Auditing
+│       │   ├── test_ipv6.py        IPv6 Testing
+│       │   ├── test_mssql_instantiation.py
+│       │   ├── test_snowflake_fallback.py
+│       │   ├── test_supabase_connection.py
+│       │   └── analyze_load_test.py Load Testing
+│       │
+│       ├── database/                Database Utilities
+│       │   ├── check_db.py         DB Health Check
+│       │   ├── check_keys.py       Key Validation
+│       │   ├── check_mssql_data.py MSSQL Data Check
+│       │   ├── check_pooling.py    Connection Pooling
+│       │   ├── check_registry_schemas.py
+│       │   ├── debug_snowflake.py  Snowflake Debug
+│       │   ├── setup_database.py   Initial DB Setup
+│       │   ├── apply_migrations.py Run Migrations
+│       │   └── fix_mock_db.py      Mock DB Fixes
+│       │
+│       └── utilities/               General Utilities
+│           ├── fix_use_effects.cjs React Hook Fixes
+│           └── update_readme.py    README Updates
+│
+├── 🛠️ TOOLS
+│   └── tools/                        Development Tools
+│       ├── linters/                 Code Linters
+│       │   ├── custom_ts_linter.cjs     TypeScript Linter
+│       │   └── custom_ts_linter_deep.cjs Deep Linting
+│       │
+│       └── scanners/                Code Scanners
+│           └── security_scanner.cjs  Security Scanning
+│
+├── 📋 LOGS
+│   └── logs/                         Log Files (gitignored)
+│       ├── tests/                   Test Outputs
+│       │   ├── test_out.txt
+│       │   ├── test_out_raw*.txt
+│       │   ├── pytest_out.txt
+│       │   ├── qa_out.txt
+│       │   ├── final_qa_out*.txt
+│       │   └── verify_output.txt
+│       │
+│       ├── performance/             Performance Results
+│       │   ├── perf_output.txt
+│       │   ├── perf_output_after.txt
+│       │   └── perf_results.txt
+│       │
+│       ├── security/                Security Reports
+│       │   ├── security_report.txt
+│       │   ├── security_report_final.txt
+│       │   └── final_security_report.txt
+│       │
+│       └── linting/                 Lint Outputs
+│           ├── lint_output*.txt
+│           ├── lint_report.txt
+│           └── lint_results*.txt
+│
+├── 🚀 DEPLOYMENT
+│   ├── deploy/                       Deployment Configs
+│   │   └── (deployment scripts)
+│   │
+│   ├── monitoring/                   Monitoring Setup
+│   │   └── (monitoring configs)
+│   │
+│   └── supabase/                     Supabase Configuration
+│       ├── migrations/
+│       └── functions/
+│
+├── 📦 DEPENDENCIES & CONFIG
+│   ├── package.json                 Node Dependencies
+│   ├── package-lock.json            Locked Versions
+│   ├── bun.lockb                    Bun Lock File
+│   │
+│   ├── tsconfig.json                TypeScript Config
+│   ├── tsconfig.app.json            App TS Config
+│   ├── tsconfig.node.json           Node TS Config
+│   │
+│   ├── vite.config.ts               Vite Build Config
+│   ├── vitest.config.ts             Vitest Test Config
+│   │
+│   ├── tailwind.config.ts           Tailwind CSS
+│   ├── postcss.config.js            PostCSS
+│   ├── eslint.config.js             ESLint Rules
+│   │
+│   ├── components.json              shadcn/ui Config
+│   │
+│   ├── docker-compose.yml           Docker Services
+│   ├── Dockerfile.frontend          Frontend Image
+│   ├── nginx.conf                   Nginx Config
+│   │
+│   ├── .env.example                 Env Template
+│   ├── .env                         Local Env (gitignored)
+│   ├── .gitignore                   Git Ignore Rules
+│   └── .dockerignore                Docker Ignore
+│
+├── 🎬 STARTUP SCRIPTS
+│   ├── start_astraflow.bat          Start Everything
+│   ├── start_astraflow.sh           Unix Start Script
+│   ├── start_backend.bat            Backend Only
+│   ├── start_frontend.bat           Frontend Only
+│   ├── START_BOTH.bat               Start Both Services
+│   ├── quick_start.bat              Quick Startup
+│   └── push_to_github.bat           Git Helper
+│
+├── 📖 PROJECT DOCS
+│   ├── README.md                    Main README
+│   ├── README_CLEAN.md              New Professional README
+│   ├── PROJECT_STRUCTURE.md         Complete Structure Guide
+│   ├── RESTRUCTURING_GUIDE.md       Before/After Guide
+│   ├── START_RESTRUCTURING.md       This Summary
+│   └── 🚀 START HERE.txt            Quick Start Pointer
+│
+├── 🔄 RESTRUCTURING SCRIPTS
+│   ├── RESTRUCTURE_PROJECT.bat      Master Script
+│   ├── reorganize_project.bat       Organize Scripts/Logs
+│   └── move_documentation.bat       Organize Docs
+│
+├── 📁 OTHER FOLDERS
+│   ├── tmp/                         Temporary Files
+│   ├── Requriment-Docs(PRD,TRD)/   Requirements
+│   └── Project_Upgrade_plan/        Upgrade Plans
+│
+└── 🗑️ TO BE CLEANED
+    └── application_start_steps.txt   (move to docs/)
+
+═══════════════════════════════════════════════════════════════════════
+
+SUMMARY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Total Directories:      20+
+Total Files Organized:  58+
+Root Files (Before):    60+
+Root Files (After):     ~15 (essential only)
+
+Key Improvements:
+✓ Scripts organized by purpose
+✓ All logs in dedicated folder (gitignored)
+✓ All documentation in /docs
+✓ Development tools separated
+✓ Clean, professional root directory
+✓ Industry-standard structure
+
+═══════════════════════════════════════════════════════════════════════

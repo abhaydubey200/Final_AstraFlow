@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, GitBranch, Database, Activity, 
   Settings, Layers, Shield, ChevronLeft, ChevronRight, 
-  ScrollText, LogOut, Bell, BookOpen, DollarSign,
+  ScrollText, LogOut, Bell, BookOpen, 
   Monitor, Cpu, Zap, Search
 } from "lucide-react";
 import { useState } from "react";
@@ -25,16 +25,13 @@ const sections = [
     items: [
       { icon: Activity, label: "Monitoring", path: "/monitoring" },
       { icon: ScrollText, label: "Execution Logs", path: "/logs" },
-      { icon: DollarSign, label: "Costs", path: "/costs" },
       { icon: Shield, label: "Audit Logs", path: "/audit" },
-      { icon: Zap, label: "Marketplace", path: "/marketplace" },
       { icon: Bell, label: "Alerting", path: "/alerts" },
     ]
   },
   {
     title: "Platform",
     items: [
-      { icon: Shield, label: "Governance", path: "/governance" },
       { icon: BookOpen, label: "User Guide", path: "/docs" },
       { icon: Settings, label: "Settings", path: "/settings" },
     ]
