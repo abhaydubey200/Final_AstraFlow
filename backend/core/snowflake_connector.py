@@ -21,6 +21,20 @@ from core.healing_monitor import runtime_monitor
 logger = logging.getLogger(__name__)
 
 class SnowflakeConnector(BaseConnector):
+    @staticmethod
+    def quote_identifier(identifier: str) -> str:
+        """
+        Properly quote a Snowflake identifier.
+        - Escapes existing double quotes by doubling them
+        - Wraps in double quotes to handle special characters (hyphens, spaces, etc.)
+        """
+        if not identifier:
+            return identifier
+        # Escape existing double quotes
+        safe_id = identifier.replace('"', '""')
+        # Wrap in double quotes
+        return f'"{safe_id}"'
+    
     @classmethod
     def get_config_schema(cls) -> Dict[str, Any]:
         return {
@@ -156,25 +170,16 @@ class SnowflakeConnector(BaseConnector):
                         if db:
                             # Log the DB being used for discovery
                             logger.info(f"Discovering schemas in Snowflake database: {db}")
-                            # Quote correctly: escape existing double quotes
-                            db_safe = db.replace('"', '""')
-                            try:
-                                cursor.execute(f'SHOW SCHEMAS IN DATABASE "{db_safe}"')
-                            except snowflake.connector.errors.ProgrammingError as e:
-                                logger.warning(f"Quoted SHOW SCHEMAS failed for '{db}', trying unquoted: {e}")
-                                # Only try unquoted if the error wasn't about the hyphen itself
-                                cursor.execute(f'SHOW SCHEMAS IN DATABASE {db}')
+                            # Always use quoted identifiers for safety with special characters
+                            db_quoted = self.quote_identifier(db)
+                            cursor.execute(f'SHOW SCHEMAS IN DATABASE {db_quoted}')
                             return [r[1] for r in cursor.fetchall()]
                     elif target == "tables":
                         db = database_context or self.config.get("database")
                         if db:
                             logger.info(f"Discovering tables in Snowflake database: {db}")
-                            db_safe = db.replace('"', '""')
-                            try:
-                                cursor.execute(f'SHOW TABLES IN DATABASE "{db_safe}"')
-                            except snowflake.connector.errors.ProgrammingError as e:
-                                logger.warning(f"Quoted SHOW TABLES failed for '{db}', trying unquoted: {e}")
-                                cursor.execute(f'SHOW TABLES IN DATABASE {db}')
+                            db_quoted = self.quote_identifier(db)
+                            cursor.execute(f'SHOW TABLES IN DATABASE {db_quoted}')
                             return [{"name": r[1], "database": r[2], "schema": r[3]} for r in cursor.fetchall()]
                 except snowflake.connector.errors.ProgrammingError as e:
                     logger.error(f"Snowflake discovery error for {target}: {e}")
@@ -226,25 +231,26 @@ class SnowflakeConnector(BaseConnector):
                 
                 if not db_name: return []
 
-                try:
-                    cursor.execute(f'SHOW TABLES IN DATABASE "{db_name}"')
-                except snowflake.connector.errors.ProgrammingError:
-                    try:
-                        cursor.execute(f'SHOW TABLES IN DATABASE {db_name}')
-                    except snowflake.connector.errors.ProgrammingError:
-                        cursor.execute(f'SHOW TABLES IN DATABASE "{db_name.upper()}"')
+                # Always use quoted identifiers for database names
+                db_quoted = self.quote_identifier(db_name)
+                cursor.execute(f'SHOW TABLES IN DATABASE {db_quoted}')
                 
                 rows = cursor.fetchall()
                 
                 tables = []
                 for row in rows:
                     if row[2].upper() == 'INFORMATION_SCHEMA': continue
+                    schema_name = row[2]
+                    table_name = row[1]
                     with conn.cursor() as col_cur:
-                        col_cur.execute(f'DESC TABLE "{db_name.upper()}"."{row[2]}"."{row[1]}"')
+                        # Quote all identifiers (database, schema, table)
+                        col_cur.execute(
+                            f'DESC TABLE {self.quote_identifier(db_name)}.{self.quote_identifier(schema_name)}.{self.quote_identifier(table_name)}'
+                        )
                         col_rows = col_cur.fetchall()
                         columns = [{"name": c[0], "type": c[1], "nullable": c[3] == 'Y', "is_primary_key": c[5] == 'Y'} for c in col_rows]
                         tables.append({
-                            "schema": row[2], "name": row[1], "columns": columns,
+                            "schema": schema_name, "name": table_name, "columns": columns,
                             "primary_key": next((c["name"] for c in columns if c["is_primary_key"]), None)
                         })
                 return tables

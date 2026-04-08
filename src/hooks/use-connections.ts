@@ -9,8 +9,14 @@ export function useConnections() {
   return useQuery<Connection[]>({
     queryKey: CONNECTIONS_KEY,
     queryFn: async () => {
-      return apiClient.get<Connection[]>("/connections");
+      const response = await apiClient.get<{success: boolean; data: Connection[]; total: number}>("/connections");
+      // PHASE 3D: Handle new standard API response format
+      return response.success ? response.data : [];
     },
+    staleTime: 30_000,   // 30s fresh
+    gcTime: 60_000,      // PHASE 3D: 60s cache lifetime
+    refetchOnWindowFocus: false, // PHASE 3D: Avoid redundant API calls
+    retry: 2,
   });
 }
 
@@ -19,10 +25,17 @@ export function useConnection(id: string | undefined) {
     queryKey: ["connections", id],
     enabled: !!id,
     queryFn: async () => {
-      return apiClient.get<Connection>(`/connections/${id}`);
+      const response = await apiClient.get<{success: boolean; data: Connection}>(`/connections/${id}`);
+      // PHASE 3D: Handle new standard API response format
+      if (!response.success) throw new Error("Failed to fetch connection");
+      return response.data;
     },
+    staleTime: 30_000,
+    gcTime: 60_000, // PHASE 3D: 60s cache lifetime
+    retry: 2,
   });
 }
+
 
 
 
@@ -88,13 +101,16 @@ export interface ValidationResult {
   dag: { stages: string[]; node_count: number; edge_count: number } | null;
 }
 
-// ... existing useConnections and useConnection (keep using Supabase for reading)
+
 
 export function useCreateConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (form: ConnectionFormData) => {
-      return apiClient.post<Connection>("/connections", form);
+      const response = await apiClient.post<{success: boolean; data: Connection; message?: string}>("/connections", form);
+      // PHASE 3D: Handle new standard API response format
+      if (!response.success) throw new Error("Failed to create connection");
+      return response.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   });
@@ -105,7 +121,10 @@ export function useUpdateConnection() {
   return useMutation({
     mutationFn: async (data: { id: string } & Partial<ConnectionFormData>) => {
       const { id, ...payload } = data;
-      return apiClient.put<Connection>(`/connections/${id}`, payload);
+      const response = await apiClient.put<{success: boolean; data: Connection}>(`/connections/${id}`, payload);
+      // PHASE 3D: Handle new standard API response format
+      if (!response.success) throw new Error("Failed to update connection");
+      return response.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   });
@@ -115,7 +134,10 @@ export function useDeleteConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      return apiClient.delete(`/connections/${id}`);
+      const response = await apiClient.delete<{success: boolean; message?: string}>(`/connections/${id}`);
+      // PHASE 3D: Handle new standard API response format
+      if (!response.success) throw new Error("Failed to delete connection");
+      return response;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   });
@@ -125,7 +147,18 @@ export function useTestConnection() {
   const qc = useQueryClient();
   return useMutation<TestConnectionResult, Error, TestConnectionParams>({
     mutationFn: async (params) => {
-      return apiClient.post<TestConnectionResult>("/connections/test", params);
+      // PHASE 3D: Add 8s client-side timeout with AbortController
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      
+      try {
+        const response = await apiClient.post<TestConnectionResult>("/connections/test", params);
+        clearTimeout(timer);
+        return response;
+      } catch (error) {
+        clearTimeout(timer);
+        throw error;
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
   });
@@ -135,18 +168,15 @@ export function useSchemaDiscovery() {
   const qc = useQueryClient();
   return useMutation<SchemaDiscoveryResult, Error, { connection_id: string; password?: string; force_refresh?: boolean }>({
     mutationFn: async (params) => {
-      return apiClient.post<SchemaDiscoveryResult>("/connections/discover-schema", params);
+      const response = await apiClient.post<{ success: boolean; data: SchemaDiscoveryResult } | SchemaDiscoveryResult>("/connections/discover", params);
+      // Handle both wrapped {success, data} and legacy direct response
+      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
+        return (response as { success: boolean; data: SchemaDiscoveryResult }).data;
+      }
+      return response as SchemaDiscoveryResult;
     },
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: ["connections", variables.connection_id] });
-    },
-  });
-}
-
-export function useCapabilities() {
-  return useMutation<ConnectionCapabilities, Error, { connection_id: string; type: string }>({
-    mutationFn: async (params) => {
-      return apiClient.post<ConnectionCapabilities>("/connections/capabilities", params);
     },
   });
 }
@@ -159,7 +189,12 @@ export interface ConnectorTypeSchema {
 export function useResourceDiscovery() {
   return useMutation<{ results: (string | Record<string, unknown>)[] }, Error, ResourceDiscoveryParams>({
     mutationFn: async (params) => {
-      return apiClient.post<{ results: (string | Record<string, unknown>)[] }>("/connections/discover", params);
+      const response = await apiClient.post<{ success: boolean; data: { results: (string | Record<string, unknown>)[] } } | { results: (string | Record<string, unknown>)[] }>("/connections/discover", params);
+      // Handle both wrapped {success, data} and legacy direct response
+      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
+        return (response as { success: boolean; data: { results: (string | Record<string, unknown>)[] } }).data;
+      }
+      return response as { results: (string | Record<string, unknown>)[] };
     },
   });
 }
@@ -167,7 +202,12 @@ export function useResourceDiscovery() {
 export function usePreviewData() {
   return useMutation<{ data: Record<string, unknown>[]; columns: string[] }, Error, { type: string; table_name: string; schema_name?: string; [key: string]: unknown }>({
     mutationFn: async (params) => {
-      return apiClient.post<{ data: Record<string, unknown>[]; columns: string[] }>("/connections/preview-data", params as Record<string, unknown>);
+      const response = await apiClient.post<{ success: boolean; data: { data: Record<string, unknown>[]; columns: string[] } } | { data: Record<string, unknown>[]; columns: string[] }>("/connections/preview-data", params as Record<string, unknown>);
+      // Handle both wrapped {success, data} and legacy direct response
+      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
+        return (response as { success: boolean; data: { data: Record<string, unknown>[]; columns: string[] } }).data;
+      }
+      return response as { data: Record<string, unknown>[]; columns: string[] };
     },
   });
 }
@@ -176,8 +216,15 @@ export function useConnectorTypes() {
   return useQuery<Record<string, ConnectorTypeSchema>>({
     queryKey: ["connector_types"],
     queryFn: async () => {
-      return apiClient.get<Record<string, ConnectorTypeSchema>>("/connections/types");
+      const response = await apiClient.get<{ success: boolean; data: Record<string, ConnectorTypeSchema> } | Record<string, ConnectorTypeSchema>>("/connections/types");
+      // Handle both wrapped {success, data} and legacy direct response
+      if (response && typeof response === 'object' && 'success' in response && 'data' in response) {
+        return (response as { success: boolean; data: Record<string, ConnectorTypeSchema> }).data;
+      }
+      return response as Record<string, ConnectorTypeSchema>;
     },
+    staleTime: 5 * 60_000, // 5 minutes — connector types rarely change
+    gcTime: 10 * 60_000,
   });
 }
 

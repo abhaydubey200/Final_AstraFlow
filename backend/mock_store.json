@@ -1,5 +1,130 @@
 {
-  "connections": [],
+  "connections": [
+    {
+      "id": "d57fe415-a520-4717-a4d0-4ca47af1ba30",
+      "name": "SNOWFLAKE Connection",
+      "type": "snowflake",
+      "host": "OWUCSBE-FN08802",
+      "port": 443,
+      "username": "ABHAY2004",
+      "ssl_enabled": false,
+      "status": "connected",
+      "database_name": "N/A",
+      "created_at": "2026-04-08T09:26:25.554763",
+      "updated_at": "2026-04-08T09:26:25.554763",
+      "last_tested_at": null,
+      "created_by": null,
+      "selected_tables": [
+        {
+          "name": "CUSTOMERS",
+          "database": "ASTRA_TARGET_DB",
+          "schema": "RAW"
+        },
+        {
+          "name": "ETL_AUDIT",
+          "database": "ASTRA_TARGET_DB",
+          "schema": "RAW"
+        },
+        {
+          "name": "PRODUCTS",
+          "database": "ASTRA_TARGET_DB",
+          "schema": "RAW"
+        },
+        {
+          "name": "SALES_BIG",
+          "database": "ASTRA_TARGET_DB",
+          "schema": "RAW"
+        }
+      ],
+      "config": {
+        "name": "SNOWFLAKE Connection",
+        "type": "snowflake",
+        "host": "OWUCSBE-FN08802",
+        "database": "N/A",
+        "user": "ABHAY2004",
+        "warehouse": "N/A",
+        "password": "Abhay@7505991639",
+        "port": 443,
+        "selected_tables": [
+          {
+            "name": "CUSTOMERS",
+            "database": "ASTRA_TARGET_DB",
+            "schema": "RAW"
+          },
+          {
+            "name": "ETL_AUDIT",
+            "database": "ASTRA_TARGET_DB",
+            "schema": "RAW"
+          },
+          {
+            "name": "PRODUCTS",
+            "database": "ASTRA_TARGET_DB",
+            "schema": "RAW"
+          },
+          {
+            "name": "SALES_BIG",
+            "database": "ASTRA_TARGET_DB",
+            "schema": "RAW"
+          }
+        ],
+        "sync_configs": {
+          "CUSTOMERS": {
+            "tableName": "CUSTOMERS",
+            "mode": "full_refresh",
+            "primaryKey": "",
+            "cursorField": "",
+            "columns": []
+          },
+          "ETL_AUDIT": {
+            "tableName": "ETL_AUDIT",
+            "mode": "full_refresh",
+            "primaryKey": "",
+            "cursorField": "",
+            "columns": []
+          },
+          "PRODUCTS": {
+            "tableName": "PRODUCTS",
+            "mode": "full_refresh",
+            "primaryKey": "",
+            "cursorField": "",
+            "columns": []
+          },
+          "SALES_BIG": {
+            "tableName": "SALES_BIG",
+            "mode": "full_refresh",
+            "primaryKey": "",
+            "cursorField": "",
+            "columns": []
+          }
+        },
+        "status": "connected"
+      }
+    },
+    {
+      "id": "309d7db9-a438-4e36-a2a5-2f089a082a61",
+      "name": "SNOWFLAKE Connection",
+      "type": "snowflake",
+      "host": "TMUFHPB-NO35468",
+      "port": 443,
+      "username": "UDAY2004",
+      "database_name": "N/A",
+      "ssl_enabled": false,
+      "status": "connected",
+      "is_active": true,
+      "created_by": "admin",
+      "created_at": "2026-04-08T15:06:55.364185",
+      "updated_at": "2026-04-08T15:06:55.364185",
+      "last_tested_at": null,
+      "selected_tables": [
+        {
+          "name": "SALES_RAW",
+          "database": "MFD_DB",
+          "schema": "RAW"
+        }
+      ],
+      "_has_password": true
+    }
+  ],
   "connection_credentials": [
     {
       "connection_id": "f2bfdb75-75ff-435c-9edc-a94048a9787e",

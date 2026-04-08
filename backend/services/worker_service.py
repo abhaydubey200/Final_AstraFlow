@@ -11,7 +11,7 @@ from services.connection_service import ConnectionService
 from services.pipeline_service import PipelineService
 from services.validation_service import ValidationService
 from services.lineage_service import LineageService
-from services.cost_service import CostService
+# from services.cost_service import CostService # Removed as dead service
 from services.alert_service import AlertService
 from services.schema_service import SchemaService
 from services.storage_service import StorageService
@@ -30,7 +30,7 @@ class WorkerService:
         self.storage_service = StorageService()
         self.partition_planner = PartitionPlanner()
         self.bulk_load_service = BulkLoadService()
-        self.cost_service = CostService()
+        # self.cost_service = CostService() # Removed as dead service
         self.alert_service = AlertService()
         self.schema_service = SchemaService()
         from core.task_executor import TaskExecutor

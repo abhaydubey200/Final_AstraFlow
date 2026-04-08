@@ -8,12 +8,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { 
-  ArrowLeft, Zap, Loader2, 
-  Shield, CheckCircle2, 
-  Layers, Terminal, Monitor,
-  Database as DatabaseIcon,
   Box, Search,
-  Globe2
+  Globe2,
+  FileText,
+  Activity,
+  Loader2,
+  Database as DatabaseIcon,
+  Layers,
+  Terminal,
+  Monitor,
+  CheckCircle2,
+  Shield,
+  Zap,
+  ArrowLeft
 } from "lucide-react";
 import {
   Select,
@@ -23,6 +30,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { 
+  Tooltip, 
+  TooltipContent, 
+  TooltipProvider, 
+  TooltipTrigger 
+} from "@/components/ui/tooltip";
 import { ConnectionFormData, ConnectionType, DEFAULT_PORTS } from "@/types/connection";
 import { TestConnectionResult } from "@/hooks/use-connections";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +48,7 @@ interface WizardProps {
   setForm: React.Dispatch<React.SetStateAction<ConnectionFormData>>;
   onTest: () => Promise<void>;
   onSave: () => Promise<void>;
-  onDiscoverResources: (params: any) => Promise<{ results: string[] }>;
+  onDiscoverResources: (params: any) => Promise<{ results: (string | any)[] }>;
   testResult: TestConnectionResult | null;
   dbConfigs: any[];
   connectorTypes: Record<string, { schema: any; capabilities: any }>;
@@ -43,7 +56,7 @@ interface WizardProps {
   isSaving: boolean;
 }
 
-type Step = "type" | "address" | "auth" | "security" | "verify" | "warehouse" | "database" | "schema" | "tables" | "name";
+type Step = "type" | "address" | "auth" | "verify" | "warehouse" | "database" | "schema" | "tables" | "name";
 
 export default function ConnectionWizard({
   open, onOpenChange, editingId, form, setForm, 
@@ -94,12 +107,41 @@ export default function ConnectionWizard({
   const fetchInitialResources = async () => {
     setIsLoadingResources(true);
     try {
+      // Validate required fields before attempting discovery
+      if (!form.type) {
+        throw new Error("Connection type is required");
+      }
+      if (!form.host) {
+        throw new Error("Host/server address is required");
+      }
+      if (!form.username) {
+        throw new Error("Username is required");
+      }
+      if (!form.password) {
+        throw new Error("Password is required");
+      }
+
       if (form.type === "snowflake") {
-        const { results } = await onDiscoverResources({ ...form, target: "warehouses" });
+        const { results } = await onDiscoverResources({ 
+          type: form.type,
+          host: form.host,
+          port: form.port,
+          username: form.username,
+          password: form.password,
+          target: "warehouses" 
+        });
         setWarehouses(results);
         setStep("warehouse");
       } else {
-        const { results } = await onDiscoverResources({ ...form, target: "databases" });
+        const { results } = await onDiscoverResources({ 
+          type: form.type,
+          host: form.host,
+          port: form.port,
+          username: form.username,
+          password: form.password,
+          database_name: form.database_name,
+          target: "databases" 
+        });
         setDatabases(results);
         setStep("database");
       }
@@ -127,7 +169,15 @@ export default function ConnectionWizard({
     setForm(p => ({ ...p, warehouse_name: warehouse }));
     setIsLoadingResources(true);
     try {
-      const { results } = await onDiscoverResources({ ...form, warehouse_name: warehouse, target: "databases" });
+      const { results } = await onDiscoverResources({ 
+        type: form.type,
+        host: form.host,
+        port: form.port,
+        username: form.username,
+        password: form.password,
+        warehouse_name: warehouse, 
+        target: "databases" 
+      });
       setDatabases(results);
       setStep("database");
     } catch (err: any) {
@@ -146,7 +196,16 @@ export default function ConnectionWizard({
     setForm(p => ({ ...p, database_name: db, schema_name: "", selected_tables: [] }));
     setIsLoadingResources(true);
     try {
-      const { results } = await onDiscoverResources({ ...form, database_name: db, target: "schemas" });
+      const { results } = await onDiscoverResources({ 
+        type: form.type,
+        host: form.host,
+        port: form.port,
+        username: form.username,
+        password: form.password,
+        warehouse_name: form.warehouse_name,
+        database_name: db, 
+        target: "schemas" 
+      });
       setSchemas(results);
       setStep("schema");
     } catch (err: any) {
@@ -165,7 +224,17 @@ export default function ConnectionWizard({
     setForm(p => ({ ...p, schema_name: schema, selected_tables: [] }));
     setIsLoadingResources(true);
     try {
-      const { results } = await onDiscoverResources({ ...form, schema_name: schema, target: "tables" });
+      const { results } = await onDiscoverResources({ 
+        type: form.type,
+        host: form.host,
+        port: form.port,
+        username: form.username,
+        password: form.password,
+        warehouse_name: form.warehouse_name,
+        database_name: form.database_name,
+        schema_name: schema, 
+        target: "tables" 
+      });
       setAvailableTables(results);
       setStep("tables");
     } catch (err) {
@@ -224,9 +293,9 @@ export default function ConnectionWizard({
                 const isSnowflake = form.type === "snowflake";
                 if (s === "warehouse" && !isSnowflake) return null;
                 
-                const steps = ["type", "address", "auth", "security", "verify", ...(isSnowflake ? ["warehouse"] : []), "database", "schema", "tables", "name"];
-                const activeIdx = steps.indexOf(step);
-                const currentIdx = steps.indexOf(s);
+                const steps = ["type", "address", "auth", "verify", ...(isSnowflake ? ["warehouse"] : []), "database", "schema", "tables", "name"];
+                const activeIdx = steps.indexOf(step as any);
+                const currentIdx = steps.indexOf(s as any);
 
                 return (
                   <div key={s} className="flex items-center gap-3">
@@ -308,30 +377,54 @@ export default function ConnectionWizard({
                     <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-1">Step 2: Server Address</h3>
                     <p className="text-xs text-muted-foreground mb-6">Tell us where your database server is located.</p>
                     <div className="grid grid-cols-4 gap-3">
-                      {/* Dynamically render common fields like host/port if they exist in schema */}
-                      {connectorTypes[form.type]?.schema?.properties?.host && (
-                        <div className="col-span-3 space-y-1.5">
-                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
-                            {connectorTypes[form.type]?.schema?.properties?.host?.title || (form.type === "snowflake" ? "Account URL" : "Server Address (Host/IP)")}
-                          </Label>
+                      {/* MongoDB/File specific fields */}
+                      {form.type === 'mongodb' ? (
+                        <div className="col-span-4 space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">MongoDB Connection URI</Label>
                           <Input 
-                            placeholder={connectorTypes[form.type]?.schema?.properties?.host?.description || dbConfig.placeholder.host}
-                            value={form.host}
-                            onChange={(e) => setForm(p => ({...p, host: e.target.value}))}
-                            className="h-10 bg-muted/20 border-border/50"
+                            placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
+                            value={form.uri || ""}
+                            onChange={(e) => setForm(p => ({...p, uri: e.target.value}))}
+                            className="h-10 bg-muted/20 border-border/50 font-mono text-xs"
                           />
                         </div>
-                      )}
-                      {connectorTypes[form.type]?.schema?.properties?.port && (
-                        <div className="space-y-1.5">
-                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Port</Label>
+                      ) : (form.type === 'csv' || form.type === 'json' || form.type === 'parquet') ? (
+                        <div className="col-span-4 space-y-1.5">
+                          <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Local File Path</Label>
                           <Input 
-                            type="number"
-                            value={form.port}
-                            onChange={(e) => setForm(p => ({...p, port: parseInt(e.target.value) || 0}))}
-                            className="h-10 bg-muted/20 border-border/50 text-center font-mono"
+                            placeholder="/path/to/your/data.csv"
+                            value={form.file_path || ""}
+                            onChange={(e) => setForm(p => ({...p, file_path: e.target.value}))}
+                            className="h-10 bg-muted/20 border-border/50 font-mono text-xs"
                           />
                         </div>
+                      ) : (
+                        <>
+                          {connectorTypes[form.type]?.schema?.properties?.host && (
+                            <div className="col-span-3 space-y-1.5">
+                              <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">
+                                {connectorTypes[form.type]?.schema?.properties?.host?.title || (form.type === "snowflake" ? "Account URL" : "Server Address (Host/IP)")}
+                              </Label>
+                              <Input 
+                                placeholder={connectorTypes[form.type]?.schema?.properties?.host?.description || dbConfig.placeholder.host}
+                                value={form.host}
+                                onChange={(e) => setForm(p => ({...p, host: e.target.value}))}
+                                className="h-10 bg-muted/20 border-border/50"
+                              />
+                            </div>
+                          )}
+                          {connectorTypes[form.type]?.schema?.properties?.port && (
+                            <div className="space-y-1.5">
+                              <Label className="text-[11px] font-bold uppercase tracking-tight text-muted-foreground">Port</Label>
+                              <Input 
+                                type="number"
+                                value={form.port}
+                                onChange={(e) => setForm(p => ({...p, port: parseInt(e.target.value) || 0}))}
+                                className="h-10 bg-muted/20 border-border/50 text-center font-mono"
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                     
@@ -703,19 +796,25 @@ export default function ConnectionWizard({
               )}
 
               {step === "address" && (
-                <Button onClick={() => setStep("auth")} disabled={!form.host.trim()}>
-                  Next: Credentials
+                <Button 
+                  onClick={() => {
+                    if (form.type === 'csv' || form.type === 'json' || form.type === 'parquet' || form.type === 'mongodb') {
+                      setStep("verify");
+                    } else {
+                      setStep("auth");
+                    }
+                  }} 
+                  disabled={form.type === 'mongodb' ? !form.uri : ((form.type === 'csv' || form.type === 'json' || form.type === 'parquet') ? !form.file_path : !form.host.trim())}
+                >
+                  Next: { (form.type === 'csv' || form.type === 'json' || form.type === 'parquet' || form.type === 'mongodb') ? "Verify" : "Credentials" }
                 </Button>
               )}
 
               {step === "auth" && (
-                <Button onClick={() => setStep("security")} disabled={!form.username.trim()}>
-                  Next: Security
-                </Button>
-              )}
-
-              {step === "security" && (
-                <Button onClick={() => setStep("verify")}>
+                <Button 
+                  onClick={() => setStep("verify")} 
+                  disabled={!form.username.trim() || !form.password.trim()}
+                >
                   Next: Verify
                 </Button>
               )}
@@ -739,10 +838,11 @@ export default function ConnectionWizard({
 
               {step === "name" && (
                 <Button 
-                  disabled={isSaving || !form.name.trim()}
+                  disabled={isSaving || !form.name.trim() || !testResult?.success}
                   onClick={onSave}
                   className="gap-2 px-8 h-10 shadow-lg shadow-primary/25"
                 >
+
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Finish Setup
                 </Button>

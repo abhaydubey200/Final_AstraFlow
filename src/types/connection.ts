@@ -1,4 +1,4 @@
-export type ConnectionType = "mssql" | "mysql" | "postgresql" | "snowflake";
+export type ConnectionType = "mssql" | "mysql" | "postgresql" | "snowflake" | "mongodb" | "oracle";
 
 export type ConnectionStatus = "connected" | "disconnected" | "error" | "testing";
 
@@ -55,6 +55,8 @@ export interface ConnectionFormData {
   timeout_seconds: number;
   selected_tables?: string[];
   config?: Record<string, unknown>;
+  uri?: string;
+  file_path?: string;
 }
 
 export const CONNECTION_TYPE_LABELS: Record<ConnectionType, string> = {
@@ -62,6 +64,8 @@ export const CONNECTION_TYPE_LABELS: Record<ConnectionType, string> = {
   mysql: "MySQL",
   postgresql: "PostgreSQL",
   snowflake: "Snowflake",
+  mongodb: "MongoDB",
+  oracle: "Oracle Database",
 };
 
 export const DEFAULT_PORTS: Record<ConnectionType, number> = {
@@ -69,4 +73,6 @@ export const DEFAULT_PORTS: Record<ConnectionType, number> = {
   mysql: 3306,
   postgresql: 5432,
   snowflake: 443,
+  mongodb: 27017,
+  oracle: 1521,
 };

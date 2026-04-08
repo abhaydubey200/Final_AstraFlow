@@ -35,6 +35,11 @@ logs/
 *_out.txt
 *_results.txt
 *_report.txt
+*_log.txt
+*_check.txt
+*_results.txt
+*_output.txt
+*_error.txt
 api_health_check.txt
 audit_log*.txt
 sdk_test.log
@@ -47,6 +52,9 @@ qa_out.txt
 security_report*.txt
 test_out*.txt
 verify_output.txt
+*.tmp
+*.lock
+*.lockb
 
 # Editor directories and files
 .vscode/*

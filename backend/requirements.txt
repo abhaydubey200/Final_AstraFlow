@@ -18,3 +18,5 @@ httpx
 supabase
 slowapi
 cachetools
+pymongo
+motor

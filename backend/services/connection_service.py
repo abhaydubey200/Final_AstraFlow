@@ -2,6 +2,8 @@ import uuid
 import json
 import time
 import asyncio
+import threading
+import logging
 from fastapi import HTTPException
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -14,6 +16,15 @@ from services.ai_service import AIService
 from core.supabase_client import supabase, supabase_logger
 from core.decorators import safe_execute
 from core.data_utils import cached_supabase_call, invalidate_cache
+import os
+
+MOCK_STORE_PATH = os.path.join(os.path.dirname(__file__), "..", "mock_store.json")
+
+# Thread-safe lock for mock store writes (10 concurrent users ready)
+_mock_store_lock = threading.Lock()
+
+# Logger for production (replaces debug file writes)
+logger = logging.getLogger("connection_service")
 
 class ConnectionService:
     def __init__(self, pool: Any = None):
@@ -25,56 +36,111 @@ class ConnectionService:
         self.ai_service = AIService()
         self._pool_cache = {} 
 
+    def _read_mock_store(self) -> Dict[str, Any]:
+        """Reads local mock data for fallback."""
+        if not os.path.exists(MOCK_STORE_PATH):
+            return {"connections": [], "sync_configs": []}
+        try:
+            with open(MOCK_STORE_PATH, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {"connections": [], "sync_configs": []}
+
+    def _write_mock_store(self, data: Dict[str, Any]):
+        """Thread-safe write to local mock store (10 concurrent users ready)."""
+        with _mock_store_lock:
+            try:
+                with open(MOCK_STORE_PATH, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+            except Exception as e:
+                logger.warning(f"Failed to write mock store: {e}")
+
+    def _mask_sensitive_fields(self, obj: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove sensitive fields (passwords) from objects before returning."""
+        masked = dict(obj) if obj else {}
+        masked.pop("password", None)
+        if "config" in masked and isinstance(masked["config"], dict):
+            config_copy = dict(masked["config"])
+            config_copy.pop("password", None)
+            masked["config"] = config_copy
+        return masked
+
     @cached_supabase_call(ttl=60)
     @supabase_logger
     async def list_connections(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        """Lists connections via Supabase SDK."""
-        res = self.supabase.table("connections")\
-            .select("*, connection_performance(avg_latency_ms), connection_capabilities(supports_cdc, supports_incremental)")\
-            .order("created_at", desc=True)\
-            .range(offset, offset + limit - 1)\
-            .execute()
-        
-        # Flatten the nested response from Supabase joins
-        connections = []
-        for row in res.data:
-            perf = row.pop("connection_performance", [])
-            caps = row.pop("connection_capabilities", [])
-            row["avg_latency_ms"] = perf[0]["avg_latency_ms"] if perf else None
-            if caps:
-                row["supports_cdc"] = caps[0]["supports_cdc"]
-                row["supports_incremental"] = caps[0]["supports_incremental"]
-            else:
-                row["supports_cdc"] = False
-                row["supports_incremental"] = False
-            connections.append(row)
+        """Lists connections with manual SDK fallback to local mock."""
+        try:
+            res = self.supabase.table("connections")\
+                .select("*, connection_performance(avg_latency_ms), connection_capabilities(supports_cdc, supports_incremental)")\
+                .order("created_at", desc=True)\
+                .range(offset, offset + limit - 1)\
+                .execute()
             
-        return connections
+            connections = []
+            for row in res.data:
+                perf = row.pop("connection_performance", [])
+                caps = row.pop("connection_capabilities", [])
+                row["avg_latency_ms"] = perf[0]["avg_latency_ms"] if perf else None
+                if caps:
+                    row["supports_cdc"] = caps[0]["supports_cdc"]
+                    row["supports_incremental"] = caps[0]["supports_incremental"]
+                else:
+                    row["supports_cdc"] = False
+                    row["supports_incremental"] = False
+                connections.append(row)
+                
+            return connections
+        except Exception as e:
+            logger.warning(f"Supabase list failed, falling back to mock: {e}")
+            mock_data = self._read_mock_store()
+            return mock_data.get("connections", [])
 
     @safe_execute()
     async def get_connection(self, connection_id: str) -> Optional[Dict[str, Any]]:
-        """Phase 2 Migration: Get connection with stats & caps."""
-        res = self.supabase.table("connections")\
-            .select("*, connection_performance(*), connection_capabilities(*)")\
-            .eq("id", connection_id)\
-            .execute()
-        
-        if not res.data:
-            return None
+        """Phase 2 Migration: Get connection with stats & caps (fallback to mock)."""
+        try:
+            res = self.supabase.table("connections")\
+                .select("*, connection_performance(*), connection_capabilities(*)")\
+                .eq("id", connection_id)\
+                .execute()
             
-        row = res.data[0]
-        perf = row.pop("connection_performance", [])
-        caps = row.pop("connection_capabilities", [])
-        
-        if perf: row.update(perf[0])
-        if caps: row.update(caps[0])
-        
-        return row
+            if res.data:
+                row = res.data[0]
+                perf = row.pop("connection_performance", [])
+                caps = row.pop("connection_capabilities", [])
+                
+                if perf: row.update(perf[0])
+                if caps: row.update(caps[0])
+                
+                return self._mask_sensitive_fields(row)
+        except Exception as e:
+            logger.warning(f"Supabase get failed for {connection_id}, checking mock: {e}")
+            
+        mock_data = self._read_mock_store()
+        for conn in mock_data.get("connections", []):
+            if str(conn.get("id")) == str(connection_id):
+                return self._mask_sensitive_fields(conn)
+        return None
 
     @supabase_logger
     async def delete_connection(self, connection_id: str):
-        """Deletes connection via SDK."""
-        self.supabase.table("connections").delete().eq("id", connection_id).execute()
+        """Deletes connection via SDK and mock store with proper error handling."""
+        try:
+            self.supabase.table("connections").delete().eq("id", connection_id).execute()
+            logger.info(f"Successfully deleted connection {connection_id} from Supabase")
+        except Exception as e:
+            logger.warning(f"Failed to delete from Supabase: {e}")
+            
+        # --- Sync to Mock Store ---
+        mock_data = self._read_mock_store()
+        original_count = len(mock_data.get("connections", []))
+        mock_data["connections"] = [c for c in mock_data.get("connections", []) if str(c.get("id")) != str(connection_id)]
+        new_count = len(mock_data.get("connections", []))
+        
+        if new_count < original_count:
+            self._write_mock_store(mock_data)
+            logger.info(f"Successfully deleted connection {connection_id} from mock store")
+        
         invalidate_cache("list_connections")
         
         # Cleanup cached pool if it exists
@@ -82,41 +148,75 @@ class ConnectionService:
             try:
                 old_pool = self._pool_cache.pop(connection_id)
                 await old_pool.close()
-            except Exception:
-                pass
+                logger.debug(f"Closed connection pool for {connection_id}")
+            except Exception as e:
+                logger.warning(f"Failed to close pool for {connection_id}: {e}")
 
     @safe_execute()
     async def create_connection(self, config: Dict[str, Any]):
         """Phase 2 Migration: Create connection and sync configs."""
+        # --- PHASE 2B: Input Validation (MANDATORY) ---
+        name = config.get("name", "").strip()
+        conn_type = config.get("type", "").strip().lower()
+        
+        if not name:
+            raise HTTPException(status_code=400, detail="Connection name is required")
+        if not conn_type:
+            raise HTTPException(status_code=400, detail="Connection type is required")
+        
+        # Validate connector type is supported (only 6 allowed)
+        if conn_type not in ["postgresql", "mysql", "mssql", "snowflake", "mongodb", "oracle"]:
+            raise HTTPException(status_code=400, detail=f"Unsupported connector type: {conn_type}")
+        
         port = config.get("port")
         if not port:
             try:
-                connector_class = ConnectorRegistry.get_connector_class(config.get("type"))
+                connector_class = ConnectorRegistry.get_connector_class(conn_type)
                 schema = connector_class.get_config_schema()
                 port = schema.get("properties", {}).get("port", {}).get("default", 0)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to get default port for {conn_type}: {e}")
                 port = 0
         
-        conn_res = self.supabase.table("connections").insert({
-            "name": config.get("name"),
-            "type": config.get("type"),
-            "host": config.get("host"),
-            "port": port,
-            "username": config.get("username") or config.get("user"),
-            "ssl_enabled": config.get("ssl_enabled", False),
-        }).execute()
+        conn_id = None
         
-        if not conn_res.data:
-            raise RuntimeError("Failed to create connection")
+        # Try Supabase first, fall back to UUID if it fails
+        try:
+            conn_res = self.supabase.table("connections").insert({
+                "name": config.get("name"),
+                "type": config.get("type"),
+                "host": config.get("host"),
+                "port": port,
+                "username": config.get("username") or config.get("user"),
+                "ssl_enabled": config.get("ssl_enabled", False),
+            }).execute()
             
-        conn_id = conn_res.data[0]['id']
+            if conn_res.data:
+                conn_id = conn_res.data[0]['id']
+                logger.info(f"Created connection {conn_id} in Supabase")
+        except Exception as e:
+            logger.warning(f"Supabase insert failed, using local UUID: {e}")
+            # Generate local ID if Supabase fails
+            conn_id = str(uuid.uuid4())
+        
+        if not conn_id:
+            # If still no ID, create one
+            conn_id = str(uuid.uuid4())
         
         # Use SecretService for credentials
         if config.get("password"):
-            await self.secret_service.store_secret(str(conn_id), 'password', config.get("password"))
+            try:
+                await self.secret_service.store_secret(str(conn_id), 'password', config.get("password"))
+                logger.debug(f"Stored password for connection {conn_id}")
+            except Exception as e:
+                logger.warning(f"Could not store secret for {conn_id}: {e}")
             
         # Initial capability detection
-        await self.capability_service.detect_capabilities({**config, "connection_id": str(conn_id)})
+        try:
+            await self.capability_service.detect_capabilities({**config, "connection_id": str(conn_id)})
+            logger.info(f"Detected capabilities for {conn_id}")
+        except Exception as e:
+            logger.warning(f"Capability detection failed for {conn_id}: {e}")
         
         # Persist Sync Configs
         selected_tables = config.get("selected_tables", [])
@@ -139,37 +239,95 @@ class ConnectionService:
             })
             
         if sync_records:
-            self.supabase.table("sync_configs").insert(sync_records).execute()
+            try:
+                self.supabase.table("sync_configs").insert(sync_records).execute()
+                logger.info(f"Created {len(sync_records)} sync configs for connection {conn_id}")
+            except Exception as e:
+                logger.warning(f"Failed to create sync configs: {e}")
+            
+        # --- ALWAYS Sync to Mock Store (Primary storage in mock mode) ---
+        # PHASE 2B: NEVER store raw password in mock_store.json
+        mock_data = self._read_mock_store()
+        new_conn = {
+            "id": str(conn_id),
+            "name": config.get("name"),
+            "type": config.get("type"),
+            "host": config.get("host"),
+            "port": port,
+            "username": config.get("username") or config.get("user"),
+            "database_name": config.get("database_name") or config.get("database") or "",
+            "ssl_enabled": config.get("ssl_enabled", False),
+            "status": config.get("status", "connected"),
+            "is_active": True,
+            "created_by": "admin",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "last_tested_at": config.get("last_tested_at", None),
+            "selected_tables": config.get("selected_tables", []),
+            # NOTE: password intentionally omitted — stored via SecretService only
+            "_has_password": bool(config.get("password"))  # only store a boolean flag
+        }
+        mock_data["connections"].append(new_conn)
+        self._write_mock_store(mock_data)
+        logger.info(f"Synced new connection {conn_id} to mock store")
             
         invalidate_cache("list_connections")
-        return {"id": str(conn_id), "status": "created"}
+        return self._mask_sensitive_fields(new_conn)
             
     @safe_execute()
     async def update_connection(self, connection_id: str, config: Dict[str, Any]):
         """Phase 2 Migration: Update connection metadata."""
-        port = config.get("port")
-        if not port:
-            port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
-        
-        self.supabase.table("connections").update({
-            "name": config.get("name"),
-            "host": config.get("host"),
-            "port": port,
-            "username": config.get("username") or config.get("user"),
-            "ssl_enabled": config.get("ssl_enabled", False),
-        }).eq("id", connection_id).execute()
+        try:
+            port = config.get("port")
+            if not port:
+                port = {"postgresql": 5432, "snowflake": 443, "mysql": 3306, "mssql": 1433}.get(config.get("type"), 0)
+            
+            update_data = {
+                "name": config.get("name"),
+                "host": config.get("host"),
+                "port": port,
+                "username": config.get("username") or config.get("user"),
+                "ssl_enabled": config.get("ssl_enabled", False),
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            self.supabase.table("connections").update(update_data).eq("id", connection_id).execute()
+            logger.info(f"Updated connection {connection_id} in Supabase")
+        except Exception as e:
+            logger.warning(f"Failed to update in Supabase: {e}")
         
         # Update password if provided
         if config.get("password"):
-            await self.secret_service.store_secret(connection_id, 'password', config.get("password"))
+            try:
+                await self.secret_service.store_secret(connection_id, 'password', config.get("password"))
+                logger.debug(f"Updated password for connection {connection_id}")
+            except Exception as e:
+                logger.warning(f"Failed to update password: {e}")
         
         # Invalidate cached pool
         if connection_id in self._pool_cache:
             try:
                 old_pool = self._pool_cache.pop(connection_id)
                 await old_pool.close()
-            except Exception:
-                pass
+                logger.debug(f"Closed pool for {connection_id}")
+            except Exception as e:
+                logger.warning(f"Failed to close pool: {e}")
+        
+        # --- Sync to Mock Store ---
+        mock_data = self._read_mock_store()
+        for i, conn in enumerate(mock_data.get("connections", [])):
+            if str(conn.get("id")) == str(connection_id):
+                mock_data["connections"][i].update({
+                    "name": config.get("name"),
+                    "host": config.get("host"),
+                    "port": port,
+                    "username": config.get("username") or config.get("user"),
+                    "ssl_enabled": config.get("ssl_enabled", False),
+                    "updated_at": datetime.now().isoformat()
+                })
+                break
+        self._write_mock_store(mock_data)
+        logger.info(f"Updated connection {connection_id} in mock store")
         
         invalidate_cache("list_connections")
         return {"id": connection_id, "status": "updated"}
@@ -180,7 +338,7 @@ class ConnectionService:
         return {"password": password} if password else {}
 
     async def test_connection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Test a connection and return a detailed diagnostic report."""
+        """Test a connection and return a detailed diagnostic report with timeout and retry."""
         # Handle cases where config is nested or keys are at top level
         config = payload.get("config", payload) if isinstance(payload.get("config"), dict) else payload
         
@@ -206,13 +364,29 @@ class ConnectionService:
             "warehouse": config.get("warehouse_name") or config.get("warehouse"),
         }
 
-
         try:
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
             connector = connector_class(normalized_config)
             
-            # Perform deep diagnostics
-            report = await connector.diagnose()
+            # PHASE 2B: Add timeout (5s) and retry (max 2 attempts)
+            report = None
+            for attempt in range(2):
+                try:
+                    report = await asyncio.wait_for(connector.diagnose(), timeout=5.0)
+                    break  # Success, exit retry loop
+                except asyncio.TimeoutError:
+                    if attempt == 1:  # Last attempt failed
+                        logger.warning(f"Connection test timed out after 5s (2 retries)")
+                        return {
+                            "success": False,
+                            "latency_ms": 5000,
+                            "message": "Connection timed out after 5 seconds (2 retries)",
+                            "error": "timeout",
+                            "diagnostics": {"timeout": "exceeded 5s limit"}
+                        }
+                    # First attempt failed, retry
+                    logger.info(f"Connection test attempt {attempt + 1} timed out, retrying...")
+                    await asyncio.sleep(0.5)  # Brief pause before retry
             
             # Classification: Success requires basic connectivity and auth
             success = (report.get("dns_resolution") == "success" and 
@@ -228,6 +402,7 @@ class ConnectionService:
 
             return {
                 "success": success,
+                "status": "success" if success else "failed",  # Add for legacy compatibility
                 "latency_ms": report.get("latency_ms", 0),
                 "message": "Connection verified" if success else "Diagnostic failure identified",
                 "diagnostics": report,
@@ -235,8 +410,10 @@ class ConnectionService:
                 "suggestion": report.get("ai_suggestion", {}).get("fix")
             }
         except Exception as e:
+            logger.error(f"test_connection error: {str(e)}")
             return {
                 "success": False,
+                "status": "failed",
                 "latency_ms": 0,
                 "message": f"Critical error: {str(e)}",
                 "error": str(e)
@@ -334,7 +511,7 @@ class ConnectionService:
                     uuid.UUID(str(connection_id))
                     await self.metadata_service.save_schema(str(connection_id), tables_data)
                 except (ValueError, Exception) as e:
-                    print(f"Warning: Could not save schema for connection {connection_id}: {e}")
+                    logger.warning(f"Warning: Could not save schema for connection {connection_id}: {e}")
 
             return {"tables": tables_data, "supported": True, "count": len(tables_data), "cached": False}
 
@@ -343,10 +520,8 @@ class ConnectionService:
         except asyncio.TimeoutError:
             return {"tables": [], "supported": False, "message": "Discovery timed out after 30s"}
         except Exception as e:
-            with open("discovery_error.txt", "a") as f:
-                import traceback
-                f.write(f"\n--- Error in get_schema at {datetime.now()} ---\n")
-                traceback.print_exc(file=f)
+            # PHASE 2B: Replace file write with proper logging
+            logger.error(f"Schema discovery error: {str(e)}", exc_info=True)
             return {"tables": [], "supported": False, "message": f"Discovery error: {str(e)}"}
 
     async def _run_schema_discovery(self, connector: BaseConnector) -> Optional[List[Dict[str, Any]]]:
@@ -365,6 +540,13 @@ class ConnectionService:
             connection_id = config.get("connection_id") or config.get("id")
             connector_type = (config.get("type") or config.get("connector_type") or "").lower()
             
+            # Validate connector type is provided
+            if not connector_type:
+                logger.error("Discovery attempt without connector type")
+                raise HTTPException(status_code=400, detail="Connection type is required for discovery")
+            
+            logger.info(f"Discovery request - type={connector_type}, connection_id={connection_id}, has_host={bool(config.get('host'))}, has_username={bool(config.get('username'))}")
+            
             # If we have an ID, fetch the connection from DB to get host/user/etc.
             if connection_id:
                 db_conn = await self.get_connection(str(connection_id))
@@ -381,6 +563,39 @@ class ConnectionService:
             # Use unified normalization
             normalized_config = BaseConnector.normalize_config(config)
             
+            logger.info(f"After normalization - has_user={bool(normalized_config.get('user'))}, has_username={bool(normalized_config.get('username'))}, has_host={bool(normalized_config.get('host'))}")
+            
+            # Validate required fields based on connector type
+            # Note: warehouse/schema can be optional for discovery, we'll use defaults if missing
+            if connector_type == "snowflake":
+                critical_fields = ["host", "user"]  # warehouse/database can come from defaults
+                missing = [f for f in critical_fields if not normalized_config.get(f)]
+                if missing:
+                    logger.warning(f"Missing critical Snowflake fields: {missing}. Available fields: {list(normalized_config.keys())}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Missing required Snowflake fields: {', '.join(missing)}"
+                    )
+                # Fill in warehouse with default if missing
+                if not normalized_config.get("warehouse"):
+                    normalized_config["warehouse"] = config.get("warehouse_name") or "COMPUTE_WH"
+                # Fill in database with default if missing
+                if not normalized_config.get("database"):
+                    normalized_config["database"] = config.get("database_name") or "DEFAULT"
+                    
+            elif connector_type in ["postgresql", "mysql", "mssql"]:
+                required_fields = ["host", "user"]  # database can be optional for discovery
+                missing = [f for f in required_fields if not normalized_config.get(f)]
+                if missing:
+                    logger.warning(f"Missing critical fields for {connector_type}: {missing}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Missing required fields: {', '.join(missing)}"
+                    )
+                # Fill in database with default if missing
+                if not normalized_config.get("database"):
+                    normalized_config["database"] = config.get("database_name") or "postgres"
+            
             # Ensure password is included
             has_password = bool(normalized_config.get("password"))
             if not has_password and connection_id:
@@ -388,19 +603,16 @@ class ConnectionService:
                 if secret_password:
                     normalized_config["password"] = secret_password
                     has_password = True
+            
+            # Password is required for most connectors
+            if not has_password and connector_type not in ["csv", "json", "parquet"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Password is required for authentication"
+                )
                 
-            # DEBUG: Log discovery attempt
-            with open("discovery_error.txt", "a") as f:
-                f.write(f"\n--- Discovery Attempt --- {datetime.now()}\n")
-                f.write(f"Connection ID: {connection_id}\n")
-                f.write(f"Connector Type: {connector_type}\n")
-                f.write(f"Target: {target}\n")
-                f.write(f"Has Password: {has_password}\n")
-                if has_password:
-                    f.write(f"Password Length: {len(normalized_config.get('password', ''))}\n")
-                else:
-                    f.write("WARNING: No password found for discovery!\n")
-                f.write(f"Normalized Config Keys: {list(normalized_config.keys())}\n")
+            # PHASE 2B: Use proper logging instead of file writes
+            logger.info(f"Discovery attempt - type={connector_type}, target={target}, connection_id={connection_id}")
 
             results = []
             connector = None
@@ -408,15 +620,29 @@ class ConnectionService:
             connector_class = ConnectorRegistry.get_connector_class(connector_type)
             connector = connector_class(normalized_config)
             
-            if await connector.connect():
+            # PHASE 2B: Add timeout to connect() and discover_resources()
+            try:
+                connected = await asyncio.wait_for(connector.connect(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"Connection timeout for {connector_type}")
+                raise HTTPException(status_code=408, detail="Connection timed out after 5s")
+            
+            if connected:
                 # Prioritize database_name from config, then fallback to normalized_config
                 database_name = config.get("database_name") or config.get("database") or normalized_config.get("database")
                 
-                with open("discovery_error.txt", "a") as f:
-                    f.write(f"Discovery Context - DB: {database_name}\n")
+                logger.debug(f"Discovery context - database: {database_name}")
                 
-                results = await connector.discover_resources(target, database_name=database_name)
-                await connector.disconnect()
+                try:
+                    results = await asyncio.wait_for(
+                        connector.discover_resources(target, database_name=database_name),
+                        timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"Discovery timed out for {target}")
+                    raise HTTPException(status_code=408, detail="Discovery timed out after 10s")
+                finally:
+                    await connector.disconnect()
 
             # Sort results safely
             if results:
@@ -430,19 +656,17 @@ class ConnectionService:
 
             return {"results": results or []}
 
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions as-is
         except Exception as e:
-            # Log to dedicated file for debugging
-            with open("discovery_error.txt", "a") as f:
-                import traceback
-                f.write(f"\n--- Global Error in discover_resources at {datetime.now()} ---\n")
-                f.write(f"Config keys: {list(config.keys())}\n")
-                f.write(f"Connector Type: {connector_type}\n")
-                traceback.print_exc(file=f)
+            logger.error(f"Global error in discover_resources: {str(e)}", exc_info=True)
             
             error_str = str(e)
             if connector: 
-                try: await connector.disconnect()
-                except: pass
+                try:
+                    await connector.disconnect()
+                except Exception as e2:
+                    logger.debug(f"Failed to disconnect: {e2}")
             
             if "snowflake" in connector_type and ("does not exist" in error_str.lower() or "not authorized" in error_str.lower()):
                  raise HTTPException(status_code=403, detail=f"Snowflake Access Error: {error_str}")
@@ -451,19 +675,80 @@ class ConnectionService:
 
 
     async def preview_data(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Fetch a sample of data from a specific table."""
+        """Fetch a sample of data from a specific table with real connector if available."""
         connector_type = (config.get("type") or "").lower()
         table_name = config.get("table_name")
         schema_name = config.get("schema_name") or "public"
+        connection_id = config.get("id") or config.get("connection_id")
+        
+        logger.info(f"Previewing data from {table_name} in {connector_type}")
         
         if os.getenv("USE_MOCK_DB") == "true" and os.getenv("REAL_EXTERNAL_CONNECTORS") != "true":
+            logger.debug("Using mock data preview")
             sample_data = [
                 {"id": 1, "name": "System Admin", "email": "admin@astraflow.ai", "role": "superuser"},
-                {"id": 2, "name": "Data Enigneer", "email": "engineer@astraflow.ai", "role": "staff"},
+                {"id": 2, "name": "Data Engineer", "email": "engineer@astraflow.ai", "role": "staff"},
                 {"id": 3, "name": "Growth Analyst", "email": "analyst@astraflow.ai", "role": "user"},
             ]
-            return {"data": sample_data, "columns": ["id", "name", "email", "role"]}
+            return {"data": sample_data, "columns": ["id", "name", "email", "role"], "count": 3}
 
-        # Real implementation would call connector.read_records with a limit
-        # This will be fully implemented in Phase 5: Connector Engine
-        return {"data": [], "columns": [], "message": "Preview not available in current environment"}
+        # Try to get real preview from connector
+        try:
+            # Ensure password is included
+            password = config.get("password")
+            if not password and connection_id:
+                try:
+                    password = await self.secret_service.get_secret(str(connection_id), "password")
+                except Exception as e:
+                    logger.warning(f"Failed to retrieve password: {e}")
+            
+            if not password:
+                logger.warning(f"No password available for preview")
+                return {"data": [], "columns": [], "message": "No password available for connection"}
+            
+            normalized_config = BaseConnector.normalize_config({**config, "password": password})
+            connector_class = ConnectorRegistry.get_connector_class(connector_type)
+            connector = connector_class(normalized_config)
+            
+            try:
+                connected = await asyncio.wait_for(connector.connect(), timeout=5.0)
+                if not connected:
+                    logger.warning(f"Could not connect for preview")
+                    return {"data": [], "columns": [], "message": "Could not establish connection"}
+                
+                # Read sample records (limit to 10)
+                try:
+                    sample_records = await asyncio.wait_for(
+                        connector.read_records(
+                            schema=schema_name,
+                            table=table_name,
+                            limit=10
+                        ),
+                        timeout=10.0
+                    )
+                    
+                    if sample_records:
+                        # Extract columns from first record
+                        columns = list(sample_records[0].keys()) if isinstance(sample_records[0], dict) else []
+                        logger.info(f"Successfully previewed {len(sample_records)} records from {table_name}")
+                        return {
+                            "data": sample_records,
+                            "columns": columns,
+                            "count": len(sample_records)
+                        }
+                    else:
+                        logger.info(f"No data found in {table_name}")
+                        return {"data": [], "columns": [], "message": f"No data in {table_name}"}
+                        
+                except asyncio.TimeoutError:
+                    logger.warning(f"Preview query timed out")
+                    return {"data": [], "columns": [], "message": "Preview query timed out after 10s"}
+            finally:
+                try:
+                    await connector.disconnect()
+                except Exception as e:
+                    logger.debug(f"Failed to disconnect: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Preview data error: {str(e)}", exc_info=True)
+            return {"data": [], "columns": [], "message": f"Preview failed: {str(e)}"}

@@ -1,29 +1,34 @@
-try:
-    from services.analytics_service import AnalyticsService
-    print("AnalyticsService imported successfully")
-except Exception as e:
-    print(f"Error importing AnalyticsService: {e}")
+import os
+import sys
 
-try:
-    from services.ai_insight_service import AIInsightService
-    print("AIInsightService imported successfully")
-except Exception as e:
-    print(f"Error importing AIInsightService: {e}")
+# Add the current directory to sys.path
+sys.path.append(os.getcwd())
 
-try:
-    from services.validation_service import ValidationService
-    print("ValidationService imported successfully")
-except Exception as e:
-    print(f"Error importing ValidationService: {e}")
+modules_to_test = [
+    'api.dependencies',
+    'api.pipeline_router',
+    'api.connection_router',
+    'api.monitoring_router',
+    'api.self_healing_router',
+    'api.metadata_router',
+    'api.catalog_router',
+    'services.pipeline_service',
+    'services.worker_service',
+    'services.connection_service',
+    'services.analytics_service',
+    'services.ai_insight_service',
+    'services.validation_service',
+    'services.lineage_service',
+    'services.metadata_service',
+    'core.database',
+    'core.connector_registry'
+]
 
-try:
-    from services.lineage_service import LineageService
-    print("LineageService imported successfully")
-except Exception as e:
-    print(f"Error importing LineageService: {e}")
-
-try:
-    from services.governance_service import GovernanceService
-    print("GovernanceService imported successfully")
-except Exception as e:
-    print(f"Error importing GovernanceService: {e}")
+for mod in modules_to_test:
+    try:
+        __import__(mod)
+        print(f"SUCCESS: {mod} imported successfully")
+    except ImportError as e:
+        print(f"ERROR: {mod} failed to import: {e}")
+    except Exception as e:
+        print(f"EXCEPTION: {mod} failed with error: {e}")

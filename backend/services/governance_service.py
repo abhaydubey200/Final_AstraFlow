@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 class GovernanceService:
-    def __init__(self, pool: asyncpg.Pool):
+    def __init__(self, pool: Optional[asyncpg.Pool] = None):
         self.pool = pool
 
     async def apply_retention_policies(self):

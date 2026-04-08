@@ -64,10 +64,11 @@ export default function SchemaSelectionPage() {
         type: sourceId!,
         target: "databases",
       });
-      setDatabases(results as string[]);
-      if (results.length > 0) {
-        setSelectedDatabases([results[0] as string]);
-        fetchTables(results[0] as string);
+      const dbList = results as string[] || [];
+      setDatabases(dbList);
+      if (dbList.length > 0) {
+        setSelectedDatabases([dbList[0]]);
+        fetchTables(dbList[0]);
       }
     } catch (err) {
       console.error("Failed to fetch databases", err);
@@ -85,7 +86,7 @@ export default function SchemaSelectionPage() {
         database_name: databaseName,
         target: "tables",
       });
-      setTables(results);
+      setTables(results || []);
     } catch (err) {
       console.error("Failed to fetch tables", err);
     } finally {
@@ -141,7 +142,7 @@ export default function SchemaSelectionPage() {
     }
   };
 
-  const filteredTables = tables.filter(t => 
+  const filteredTables = (tables || []).filter(t => 
     (typeof t === "string" ? t : t.name).toLowerCase().includes(tableSearch.toLowerCase())
   );
 
@@ -187,7 +188,7 @@ export default function SchemaSelectionPage() {
                     </div>
                   ))
                 ) : (
-                  databases.map(db => (
+                  (databases || []).map(db => (
                     <div 
                       key={db}
                       className={cn(

@@ -4,13 +4,18 @@ from core.postgres_connector import PostgresConnector
 from core.snowflake_connector import SnowflakeConnector
 from core.mssql_connector import MSSQLConnector
 from core.mysql_connector import MySQLConnector
+from core.mongodb_connector import MongoDBConnector
+from core.oracle_connector import OracleConnector
+
 
 class ConnectorRegistry:
     _connectors: Dict[str, Type[BaseConnector]] = {
         "postgresql": PostgresConnector,
         "snowflake": SnowflakeConnector,
         "mssql": MSSQLConnector,
-        "mysql": MySQLConnector
+        "mysql": MySQLConnector,
+        "mongodb": MongoDBConnector,
+        "oracle": OracleConnector,
     }
 
     @classmethod
@@ -21,7 +26,10 @@ class ConnectorRegistry:
     def get_connector_class(cls, name: str) -> Type[BaseConnector]:
         connector_class = cls._connectors.get(name.lower())
         if not connector_class:
-            raise ValueError(f"Connector '{name}' not supported.")
+            raise ValueError(
+                f"Connector '{name}' is not supported. "
+                f"Available: {', '.join(cls._connectors.keys())}"
+            )
         return connector_class
 
     @classmethod
@@ -38,6 +46,6 @@ class ConnectorRegistry:
                     "capabilities": connector_class.get_capabilities()
                 }
             except Exception as e:
-                print(f"Error getting schema for {name}: {e}")
+                print(f"[ConnectorRegistry] Error getting schema for '{name}': {e}")
                 schemas[name] = {"error": str(e)}
         return schemas

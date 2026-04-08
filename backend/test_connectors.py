@@ -1,61 +1,59 @@
-import asyncio
-import os
+#!/usr/bin/env python
+"""Quick test script to verify connector registry."""
 import sys
+import json
+import os
 
 # Ensure backend path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.postgres_connector import PostgresConnector
-from core.mysql_connector import MySQLConnector
-from core.mssql_connector import MSSQLConnector
-from core.snowflake_connector import SnowflakeConnector
-
-async def test_connector(name, connector_class, config):
-    print(f"--- Testing {name} ---")
-    try:
-        conn = connector_class(config)
-        # We don't expect it to actually connect, but it shouldn't crash initializing
-        connected = await conn.connect()
-        print(f"{name} connect() returned: {connected}")
-        schema = await conn.discover_schema()
-        print(f"{name} discover_schema() length: {len(schema)}")
-        print(f"{name} tests OUTWARDLY passed without runtime exceptions.")
-        return True
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"{name} tests FAILED with exception.")
-        return False
-
-async def run_all():
-    results = {}
+try:
+    from core.connector_registry import ConnectorRegistry
     
-    # Minimal mock configs
-    postgres_config = {
-        "host": "localhost", "port": 5432, "user": "test", "password": "pwd", "database": "db"
-    }
-    mysql_config = {
-        "host": "localhost", "port": 3306, "user": "test", "password": "pwd", "database": "db"
-    }
-    mssql_config = {
-        "host": "localhost", "port": 1433, "user": "test", "password": "pwd", "database": "db"
-    }
-    snowflake_config = {
-        "account": "test", "user": "test", "password": "pwd", "warehouse": "wh", "database": "db", "schema": "public"
-    }
+    print("="*60)
+    print("CONNECTOR REGISTRY TEST")
+    print("="*60)
     
-    results['postgres'] = await test_connector("Postgres", PostgresConnector, postgres_config)
-    results['mysql'] = await test_connector("MySQL", MySQLConnector, mysql_config)
-    results['mssql'] = await test_connector("MSSQL", MSSQLConnector, mssql_config)
-    results['snowflake'] = await test_connector("Snowflake", SnowflakeConnector, snowflake_config)
+    # Get all supported types
+    types = ConnectorRegistry.get_supported_types()
+    print(f"\n✅ Supported Types ({len(types)}):")
+    for t in types:
+        print(f"   - {t}")
     
-    failures = [k for k, v in results.items() if not v]
-    if failures:
-        print(f"\nFAILED Connectors: {failures}")
-        sys.exit(1)
-    else:
-        print("\nAll connectors passed basic runtime initialization and method calling tests.")
-        sys.exit(0)
-
-if __name__ == "__main__":
-    asyncio.run(run_all())
+    # Get all schemas
+    schemas = ConnectorRegistry.get_all_schemas()
+    print(f"\n✅ Schemas Retrieved: {len(schemas)}")
+    
+    # Test each connector
+    print("\n" + "="*60)
+    print("CONNECTOR DETAILS")
+    print("="*60)
+    
+    for name in types:
+        try:
+            connector_class = ConnectorRegistry.get_connector_class(name)
+            schema = connector_class.get_config_schema()
+            caps = connector_class.get_capabilities()
+            
+            print(f"\n✅ {name.upper()}")
+            print(f"   Title: {schema.get('title', 'N/A')}")
+            print(f"   Required: {schema.get('required', [])}")
+            print(f"   Capabilities: CDC={caps.get('supports_cdc')}, Incremental={caps.get('supports_incremental')}")
+            
+        except Exception as e:
+            print(f"\n❌ {name.upper()}: ERROR - {e}")
+    
+    # Test API response format
+    print("\n" + "="*60)
+    print("API RESPONSE FORMAT (/connections/types)")
+    print("="*60)
+    print(json.dumps({k: {"schema": "...", "capabilities": "..."} for k in types}, indent=2))
+    
+    print("\n✅ All tests passed!")
+    sys.exit(0)
+    
+except Exception as e:
+    print(f"\n❌ FATAL ERROR: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)

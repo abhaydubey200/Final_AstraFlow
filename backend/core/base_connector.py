@@ -34,23 +34,32 @@ class BaseConnector(ABC):
         port = config.get("port")
         try:
             if port is not None and str(port).strip():
-                port = int(port)
+                port = int(port or 0)
             else:
                 port = 0
         except (ValueError, TypeError):
             port = 0
 
-        return {
+        # Base normalized config
+        normalized = {
             "host": config.get("host"),
             "port": port,
             "database": config.get("database") or config.get("database_name"),
-            "username": config.get("username") or config.get("user"),
+            "user": config.get("username") or config.get("user"),  # Normalize to 'user'
+            "username": config.get("username") or config.get("user"),  # Keep both for compatibility
             "password": config.get("password"),
             "ssl_enabled": config.get("ssl_enabled") or config.get("ssl", False),
             "warehouse": config.get("warehouse") or config.get("warehouse_name"),
             "schema": config.get("schema") or config.get("schema_name"),
             "security_level": config.get("security_level", "standard")
         }
+        
+        # Preserve specific connector keys
+        for key in ["uri", "file_path", "collection", "format"]:
+            if key in config:
+                normalized[key] = config[key]
+                
+        return normalized
 
     @abstractmethod
     async def connect(self) -> bool:

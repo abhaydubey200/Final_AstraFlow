@@ -5,11 +5,16 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 class CostService:
-    def __init__(self, pool: asyncpg.Pool):
+    def __init__(self, pool: Optional[asyncpg.Pool] = None):
         self.pool = pool
         # Mock pricing: $0.01 per compute unit, $0.05 per GB data transfer
         self.PRICE_PER_UNIT = 0.01
         self.PRICE_PER_GB = 0.05
+
+    async def _check_pool(self):
+        if not self.pool:
+            return False
+        return True
 
     async def record_run_cost(self, run_id: str, compute_units: float, data_transfer_gb: float):
         """Calculates and records the cost for a pipeline run."""

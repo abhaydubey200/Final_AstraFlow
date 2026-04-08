@@ -2,17 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
-  Plus, Search, Database, Snowflake, Server, Loader2, RefreshCw, Activity, ShieldCheck, Globe2, Eye, Trash2
+  Plus, Search, Database, Snowflake, Server, Loader2, RefreshCw, Activity, ShieldCheck, Globe2, Eye, Trash2, FileText, Box
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  useConnections, useCreateConnection, useUpdateConnection,
-  useDeleteConnection, useTestConnection, useSchemaDiscovery,
-  useResourceDiscovery, useConnectorTypes,
+  useConnections, useDeleteConnection, useResourceDiscovery,
 } from "@/hooks/use-connections";
-import type { TestConnectionResult, SchemaTable } from "@/hooks/use-connections";
 import type { Connection, ConnectionType, ConnectionFormData } from "@/types/connection";
-import { DEFAULT_PORTS } from "@/types/connection";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +17,28 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 
-// New Components
+// Components
 import ConnectionCard from "@/components/connections/ConnectionCard";
-import ConnectionWizard from "@/components/connections/ConnectionWizard";
 import ConnectionExplorer from "@/components/connections/ConnectionExplorer";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LayoutGrid, List } from "lucide-react";
+
+// PHASE 3A: StatusBadge component for consistent status display
+const StatusBadge = ({ status }: { status: string }) => {
+  const map: Record<string, { label: string; className: string }> = {
+    connected: { label: "Connected", className: "bg-green-500/20 text-green-400 border-green-500/30" },
+    failed:    { label: "Failed",    className: "bg-red-500/20 text-red-400 border-red-500/30" },
+    error:     { label: "Error",     className: "bg-red-500/20 text-red-400 border-red-500/30" },
+    testing:   { label: "Testing...", className: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
+  };
+  const { label, className } = map[status] ?? { label: "Not Tested", className: "bg-gray-500/20 text-gray-400 border-gray-500/30" };
+  return (
+    <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full border inline-flex items-center gap-1.5", className)}>
+      <div className={cn("w-1.5 h-1.5 rounded-full", status === "connected" ? "bg-green-400 animate-pulse" : status === "error" || status === "failed" ? "bg-red-400" : "bg-gray-400")} />
+      {label}
+    </span>
+  );
+};
 
 const DB_TYPES: {
   type: ConnectionType;
@@ -63,6 +75,20 @@ const DB_TYPES: {
     color: "text-cyan-400",
     placeholder: { host: "acme.snowflakecomputing.com", db: "COMPUTE_WH" },
   },
+  {
+    type: "mongodb",
+    label: "MongoDB",
+    icon: Database,
+    color: "text-green-500",
+    placeholder: { host: "mongodb+srv://...", db: "admin" },
+  },
+  {
+    type: "oracle",
+    label: "Oracle",
+    icon: Database,
+    color: "text-red-600",
+    placeholder: { host: "oracle.example.com", db: "ORCL" },
+  },
 ];
 
 const emptyForm: ConnectionFormData = {
@@ -81,83 +107,21 @@ const emptyForm: ConnectionFormData = {
 const Connections = () => {
   const navigate = useNavigate();
   const { data: connections = [], isLoading } = useConnections();
-
-  const createMutation = useCreateConnection();
-  const updateMutation = useUpdateConnection();
   const deleteMutation = useDeleteConnection();
-  const testMutation = useTestConnection();
-  const schemaMutation = useSchemaDiscovery();
-  const { data: connectorTypes = {} } = useConnectorTypes();
 
-  const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ConnectionFormData>(emptyForm);
-  const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  // Explorer state
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerConn, setExplorerConn] = useState<Connection | null>(null);
   const [view, setView] = useState<"grid" | "table">("grid");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
-  const openNew = () => {
-    setForm(emptyForm);
-    setEditingId(null);
-    setTestResult(null);
-    setOpen(true);
-  };
+  const openNew = () => navigate("/connections/new");
 
   const openEdit = (conn: Connection) => {
-    setForm({
-      name: conn.name,
-      type: conn.type as ConnectionType,
-      host: conn.host,
-      port: conn.port,
-      database_name: conn.database_name,
-      username: conn.username,
-      password: "",
-      ssl_enabled: conn.ssl_enabled,
-      security_level: conn.security_level || "standard",
-      timeout_seconds: 30,
-    });
-    setEditingId(conn.id);
-    setTestResult(null);
-    setOpen(true);
-  };
-
-  const handleTest = async () => {
-    setTestResult(null);
-    try {
-      const result = await testMutation.mutateAsync({
-        ...form,
-        ...(editingId ? { connection_id: editingId } : {}),
-      });
-      setTestResult(result);
-      if (!result.success) {
-        toast({ title: "Connection failed", description: result.error, variant: "destructive" });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setTestResult({ success: false, latency_ms: 0, error: message });
-      toast({ title: "Error", description: message, variant: "destructive" });
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      if (editingId) {
-        await updateMutation.mutateAsync({ id: editingId, ...form });
-        toast({ title: "Infrastructure updated successfully" });
-      } else {
-        await createMutation.mutateAsync(form);
-        toast({ title: "New source bridge established" });
-      }
-      setOpen(false);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      toast({ title: "Operation failed", description: message, variant: "destructive" });
-    }
+    // Open the connection explorer to view/browse the connection
+    handleBrowseExplorer(conn);
   };
 
   const handleDelete = async () => {
@@ -177,8 +141,6 @@ const Connections = () => {
     setExplorerOpen(true);
   };
 
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const filtered = connections.filter((c) => {
     const matchesSearch = 
@@ -261,10 +223,12 @@ const Connections = () => {
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem center', backgroundSize: '1rem' }}
             >
               <option value="all">Any Type</option>
-              <option value="postgresql">Postgres</option>
-              <option value="snowflake">Snowflake</option>
+              <option value="postgresql">PostgreSQL</option>
               <option value="mysql">MySQL</option>
               <option value="mssql">SQL Server</option>
+              <option value="snowflake">Snowflake</option>
+              <option value="mongodb">MongoDB</option>
+              <option value="oracle">Oracle</option>
             </select>
 
             <select 
@@ -401,15 +365,7 @@ const Connections = () => {
                     </p>
                   </TableCell>
                   <TableCell className="p-6">
-                    <div className={cn(
-                      "inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
-                      conn.status === "connected" ? "bg-success/10 text-success border-success/20" : 
-                      conn.status === "error" ? "bg-destructive/10 text-destructive border-destructive/20" : 
-                      "bg-muted text-muted-foreground border-border/40"
-                    )}>
-                      <div className={cn("w-1 h-1 rounded-full", conn.status === "connected" ? "bg-success animate-pulse" : conn.status === "error" ? "bg-destructive" : "bg-muted-foreground/40")} />
-                      {conn.status === "connected" ? "Live" : conn.status === "error" ? "Failure" : "Offline"}
-                    </div>
+                    <StatusBadge status={conn.status || "unknown"} />
                   </TableCell>
                   <TableCell className="p-6 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -428,23 +384,7 @@ const Connections = () => {
         </div>
       )}
 
-      {/* Dialogs */}
-      <ConnectionWizard
-        open={open}
-        onOpenChange={setOpen}
-        editingId={editingId}
-        form={form}
-        setForm={setForm}
-        onTest={handleTest}
-        onSave={handleSave}
-        onDiscoverResources={(p) => resourceDiscovery.mutateAsync(p)}
-        testResult={testResult}
-        dbConfigs={DB_TYPES}
-        connectorTypes={connectorTypes}
-        isTesting={testMutation.isPending}
-        isSaving={createMutation.isPending || updateMutation.isPending}
-      />
-
+      {/* New connections use the full-page wizard at /connections/new */}
 
       <ConnectionExplorer
         open={explorerOpen}

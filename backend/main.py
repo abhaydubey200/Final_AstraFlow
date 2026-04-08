@@ -6,30 +6,12 @@ from core.error_handler import setup_exception_handlers
 from core.data_utils import limiter
 
 # Import routers
-try:
-    from api.pipeline_router import router as pipeline_router
-except ImportError:
-    pipeline_router = None
-try:
-    from api.connection_router import router as connection_router
-except ImportError:
-    connection_router = None
-try:
-    from api.monitoring_router import router as monitoring_router
-except ImportError:
-    monitoring_router = None
-try:
-    from api.self_healing_router import router as self_healing_router
-except ImportError:
-    self_healing_router = None
-try:
-    from api.metadata_router import router as metadata_router
-except ImportError:
-    metadata_router = None
-try:
-    from api.catalog_router import router as catalog_router
-except ImportError:
-    catalog_router = None
+from api.pipeline_router import router as pipeline_router
+from api.connection_router import router as connection_router
+from api.monitoring_router import router as monitoring_router
+from api.self_healing_router import router as self_healing_router
+from api.metadata_router import router as metadata_router
+from api.catalog_router import router as catalog_router
 
 # Optional services - don't block if missing
 try:
@@ -37,7 +19,7 @@ try:
 except ImportError:
     db_manager = None
     
-print("✅ AstraFlow Backend - SIMPLE MODE (No blocking dependencies)")
+print("[OK] AstraFlow Backend - SIMPLE MODE (No blocking dependencies)")
 
 app = FastAPI(
     title="AstraFlow API", 
@@ -79,17 +61,17 @@ except Exception as e:
 @app.on_event("startup")
 async def startup_event():
     """Non-blocking startup - degraded mode if dependencies fail"""
-    print("🚀 AstraFlow Starting (Degraded Mode Enabled)...")
+    print("[START] AstraFlow Starting (Degraded Mode Enabled)...")
     
     # Try to connect DB but don't block
     if db_manager:
         try:
             await db_manager.connect()
-            print("✅ Database connected")
+            print("[OK] Database connected")
         except Exception as e:
-            print(f"⚠️  Database unavailable (degraded mode): {e}")
+            print(f"[WARN] Database unavailable (degraded mode): {e}")
     
-    print("✅ Backend ready on port 8000")
+    print("[OK] Backend ready on port 8000")
 
 @app.on_event("shutdown")
 async def shutdown_event():

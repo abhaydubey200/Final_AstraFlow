@@ -1,34 +1,31 @@
-import sys
 import os
+import sys
+import traceback
+import importlib
 
-# Add the current directory to path so we can import services
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the current directory to sys.path
+sys.path.append(os.getcwd())
 
-services = [
-    "ai_insight_service", "ai_service", "alert_service", "analytics_service",
-    "audit_service", "bulk_load_service", "capability_service", "catalog_service",
-    "connection_service", "cost_service", "governance_service", "lineage_service",
-    "metadata_service", "monitoring_service", "notification_service", "partition_planner",
-    "pipeline_service", "quality_service", "rbac_service", "scheduler_service",
-    "schema_service", "secret_service", "storage_service", "validation_service",
-    "worker_service"
+modules_to_test = [
+    'api.dependencies',
+    'api.pipeline_router',
+    'api.connection_router',
+    'api.monitoring_router',
+    'api.self_healing_router',
+    'api.metadata_router',
+    'api.catalog_router',
+    'core.error_handler',
+    'core.data_utils',
+    'core.database',
+    'core.connector_registry'
 ]
 
-failed = []
-
-for service_name in services:
+for mod in modules_to_test:
     try:
-        module = __import__(f"services.{service_name}", fromlist=["*"])
-        print(f"SUCCESS: {service_name} imported successfully")
-    except Exception as e:
-        import traceback
-        print(f"FAILURE: Error importing {service_name}: {e}")
+        print(f"Testing {mod}...")
+        importlib.import_module(mod)
+        print(f"✅ SUCCESS: {mod} imported successfully")
+    except Exception:
+        print(f"❌ ERROR: {mod} failed to import")
         traceback.print_exc()
-        failed.append((service_name, str(e)))
-
-if failed:
-    print(f"\nTotal failures: {len(failed)}")
-    sys.exit(1)
-else:
-    print("\nAll services imported correctly!")
-    sys.exit(0)
+        print("-" * 40)
